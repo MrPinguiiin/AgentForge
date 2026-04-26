@@ -1,5 +1,5 @@
 {
-  "name": "ai-coder",
+  "name": "ai-coder-monorepo",
   "version": "0.1.0",
   "private": true,
   "description": "Local AI Coding Orchestrator - Multi-agent pipeline system",

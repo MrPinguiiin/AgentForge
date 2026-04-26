@@ -1,25 +1,25 @@
-import Database from "better-sqlite3";
-import { drizzle, BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { Database } from "bun:sqlite";
+import { drizzle, type BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import * as schema from "./schema.js";
 
-let db: BetterSQLite3Database<typeof schema> | null = null;
-let sqlite: Database.Database | null = null;
+let db: BunSQLiteDatabase<typeof schema> | null = null;
+let sqlite: Database | null = null;
 
-export function getDatabase(dbPath: string): BetterSQLite3Database<typeof schema> {
+export function getDatabase(dbPath: string): BunSQLiteDatabase<typeof schema> {
   if (db) return db;
 
-  sqlite = new Database(dbPath);
+  sqlite = new Database(dbPath, { create: true });
 
   // Enable WAL mode for better concurrent read performance
-  sqlite.pragma("journal_mode = WAL");
+  sqlite.exec("PRAGMA journal_mode = WAL");
   // Enable foreign key constraints
-  sqlite.pragma("foreign_keys = ON");
+  sqlite.exec("PRAGMA foreign_keys = ON");
 
   db = drizzle(sqlite, { schema });
   return db;
 }
 
-export function initializeDatabase(dbPath: string): BetterSQLite3Database<typeof schema> {
+export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof schema> {
   const database = getDatabase(dbPath);
 
   // Create tables if they don't exist

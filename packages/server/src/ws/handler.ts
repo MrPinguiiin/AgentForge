@@ -1,5 +1,13 @@
 import type { WSContext } from "hono/ws";
-import type { Orchestrator, OrchestratorEvents } from "@ai-coder/core";
+import type {
+  Orchestrator,
+  OrchestratorEvents,
+  StreamChunk,
+  PlannerResult,
+  CoderResult,
+  ReviewerResult,
+} from "@ai-coder/core";
+import type { Task } from "@ai-coder/core";
 import { createWSMessage } from "./events.js";
 
 interface ConnectedClient {
@@ -123,67 +131,67 @@ export class WebSocketHandler {
    */
   private setupOrchestratorEvents(): void {
     // Pipeline events
-    this.orchestrator.on("pipeline:start", (taskId) => {
+    this.orchestrator.on("pipeline:start", (taskId: string) => {
       this.broadcast("pipeline:start", { taskId });
     });
-    this.orchestrator.on("pipeline:stage", (taskId, stage) => {
+    this.orchestrator.on("pipeline:stage", (taskId: string, stage: string) => {
       this.broadcast("pipeline:stage", { taskId, stage });
     });
-    this.orchestrator.on("pipeline:complete", (taskId) => {
+    this.orchestrator.on("pipeline:complete", (taskId: string) => {
       this.broadcast("pipeline:complete", { taskId });
     });
-    this.orchestrator.on("pipeline:error", (taskId, error) => {
+    this.orchestrator.on("pipeline:error", (taskId: string, error: Error) => {
       this.broadcast("pipeline:error", { taskId, error: error.message });
     });
 
     // Agent events
-    this.orchestrator.on("agent:start", (taskId, agentType) => {
+    this.orchestrator.on("agent:start", (taskId: string, agentType: string) => {
       this.broadcast("agent:start", { taskId, agentType });
     });
-    this.orchestrator.on("agent:stream", (taskId, agentType, chunk) => {
+    this.orchestrator.on("agent:stream", (taskId: string, agentType: string, chunk: StreamChunk) => {
       this.broadcast("agent:stream", { taskId, agentType, chunk });
     });
-    this.orchestrator.on("agent:complete", (taskId, agentType) => {
+    this.orchestrator.on("agent:complete", (taskId: string, agentType: string) => {
       this.broadcast("agent:complete", { taskId, agentType });
     });
-    this.orchestrator.on("agent:error", (taskId, agentType, error) => {
+    this.orchestrator.on("agent:error", (taskId: string, agentType: string, error: Error) => {
       this.broadcast("agent:error", { taskId, agentType, error: error.message });
     });
 
     // Task events
-    this.orchestrator.on("task:created", (task) => {
+    this.orchestrator.on("task:created", (task: Task) => {
       this.broadcast("task:created", { task });
     });
-    this.orchestrator.on("task:updated", (task) => {
+    this.orchestrator.on("task:updated", (task: Task) => {
       this.broadcast("task:updated", { task });
     });
-    this.orchestrator.on("task:statusChanged", (task, oldStatus, newStatus) => {
+    this.orchestrator.on("task:statusChanged", (task: Task, oldStatus: string, newStatus: string) => {
       this.broadcast("task:statusChanged", { task, oldStatus, newStatus });
     });
 
     // Planning events
-    this.orchestrator.on("plan:created", (taskId, result) => {
+    this.orchestrator.on("plan:created", (taskId: string, result: PlannerResult) => {
       this.broadcast("plan:created", { taskId, result });
     });
 
     // Coding events
-    this.orchestrator.on("code:generated", (taskId, result) => {
+    this.orchestrator.on("code:generated", (taskId: string, result: CoderResult) => {
       this.broadcast("code:generated", { taskId, result });
     });
-    this.orchestrator.on("code:applied", (taskId, filesChanged) => {
+    this.orchestrator.on("code:applied", (taskId: string, filesChanged: string[]) => {
       this.broadcast("code:applied", { taskId, filesChanged });
     });
 
     // Review events
-    this.orchestrator.on("review:completed", (taskId, result) => {
+    this.orchestrator.on("review:completed", (taskId: string, result: ReviewerResult) => {
       this.broadcast("review:completed", { taskId, result });
     });
 
     // Git events
-    this.orchestrator.on("git:committed", (taskId, hash, message) => {
+    this.orchestrator.on("git:committed", (taskId: string, hash: string, message: string) => {
       this.broadcast("git:committed", { taskId, hash, message });
     });
-    this.orchestrator.on("git:pushed", (taskId, branch) => {
+    this.orchestrator.on("git:pushed", (taskId: string, branch: string) => {
       this.broadcast("git:pushed", { taskId, branch });
     });
   }

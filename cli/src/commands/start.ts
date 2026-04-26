@@ -10,7 +10,8 @@ interface StartOptions {
 
 export async function startCommand(options: StartOptions) {
   const port = parseInt(options.port);
-  const projectPath = process.cwd();
+  // Use AI_CODER_PROJECT_DIR if set by wrapper, otherwise use cwd
+  const projectPath = process.env.AI_CODER_PROJECT_DIR || process.cwd();
   const aiCoderDir = path.join(projectPath, ".ai-coder");
 
   console.log("");
@@ -44,10 +45,20 @@ export async function startCommand(options: StartOptions) {
 
     // Try to find the UI build directory
     let staticDir: string | undefined;
+
+    // Resolve the repo root (works for both dev and installer)
+    const repoRoot = process.env.AI_CODER_PROJECT_DIR
+      ? path.resolve(__dirname, "../../..") // installer: cli/src/commands -> repo root
+      : projectPath;
+
     const possibleUIDirs = [
+      // Installer: ~/.ai-coder/repo/packages/ui/build
+      path.resolve(__dirname, "../../../packages/ui/build"),
+      // Dev: relative to repo root
+      path.join(repoRoot, "packages/ui/build"),
+      // Fallback: node_modules
       path.join(projectPath, "node_modules/@ai-coder/ui/build"),
       path.resolve(__dirname, "../../packages/ui/build"),
-      path.resolve(__dirname, "../../../packages/ui/build"),
     ];
 
     for (const dir of possibleUIDirs) {
@@ -63,6 +74,7 @@ export async function startCommand(options: StartOptions) {
       dbPath,
       staticDir,
       aiConfig: (config as Record<string, unknown>).ai as any,
+      projectRoot: projectPath,
     });
 
     // Use the actual port (may differ from requested if auto-detected)

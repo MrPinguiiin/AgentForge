@@ -24,7 +24,6 @@
     "@ai-sdk/anthropic": "^3.0.0",
     "@openrouter/ai-sdk-provider": "^2.8.0",
     "drizzle-orm": "^0.45.0",
-    "better-sqlite3": "^11.7.0",
     "simple-git": "^3.27.0",
     "diff": "^7.0.0",
     "nanoid": "^5.1.0",
@@ -33,7 +32,7 @@
   },
   "devDependencies": {
     "typescript": "^5.7.0",
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/bun": "^1.2.0",
     "@types/diff": "^6.0.0",
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.30.0"

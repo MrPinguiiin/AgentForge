@@ -1,5 +1,5 @@
 import { eq, and, asc, desc } from "drizzle-orm";
-import { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { nanoid } from "nanoid";
 import * as schema from "../db/schema.js";
 import {
@@ -22,7 +22,7 @@ import type {
 } from "./types.js";
 
 export class TaskManager {
-  constructor(private db: BetterSQLite3Database<typeof schema>) {}
+  constructor(private db: BunSQLiteDatabase<typeof schema>) {}
 
   // --- Task CRUD ---
 

@@ -20,6 +20,7 @@ export interface ServerConfig {
   dbPath: string;
   staticDir?: string;
   aiConfig?: AIConfig;
+  projectRoot?: string;
 }
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
@@ -27,6 +28,7 @@ const DEFAULT_SERVER_CONFIG: ServerConfig = {
   host: "localhost",
   dbPath: ".ai-coder/ai-coder.db",
   staticDir: undefined,
+  projectRoot: undefined,
 };
 
 export async function startServer(
@@ -66,8 +68,9 @@ export async function startServer(
   const providerRegistry = new ProviderRegistry(aiConfig);
 
   // Create orchestrator
+  const projectRoot = finalConfig.projectRoot || process.env.AI_CODER_PROJECT_DIR || process.cwd();
   const orchestrator = new Orchestrator({
-    projectRoot: process.cwd(),
+    projectRoot,
     taskManager,
     providerRegistry,
     autoCommit: true,

@@ -7,7 +7,8 @@ interface ConfigOptions {
 }
 
 export async function configCommand(_options: ConfigOptions) {
-  const projectPath = process.cwd();
+  // Use AI_CODER_PROJECT_DIR if set by wrapper, otherwise use cwd
+  const projectPath = process.env.AI_CODER_PROJECT_DIR || process.cwd();
   const configPath = path.join(projectPath, ".ai-coder", "config.json");
 
   console.log("");

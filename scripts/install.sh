@@ -197,6 +197,7 @@ create_wrapper() {
 
 INSTALL_DIR="$HOME/.ai-coder"
 REPO_DIR="$INSTALL_DIR/repo"
+CLI_DIR="$REPO_DIR/cli"
 
 if [ ! -d "$REPO_DIR" ]; then
   echo "Error: AgentForge is not installed."
@@ -209,8 +210,15 @@ if [ -d "$HOME/.bun/bin" ]; then
   export PATH="$HOME/.bun/bin:$PATH"
 fi
 
-# Run the CLI
-exec bun run "$REPO_DIR/cli/src/index.ts" "$@"
+# Save current directory (project directory)
+PROJECT_DIR="$(pwd)"
+
+# Run the CLI from the cli/ workspace directory
+# This ensures Bun can resolve workspace dependencies correctly
+# We pass the project directory context via environment variable
+export AI_CODER_PROJECT_DIR="$PROJECT_DIR"
+cd "$CLI_DIR"
+exec bun run src/index.ts "$@"
 WRAPPER
 
   chmod +x "$BIN_DIR/ai-coder"

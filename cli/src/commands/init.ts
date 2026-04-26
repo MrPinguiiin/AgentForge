@@ -10,7 +10,8 @@ interface InitOptions {
 }
 
 export async function initCommand(options: InitOptions) {
-  const projectPath = path.resolve(options.path || process.cwd());
+  // Use AI_CODER_PROJECT_DIR if set by wrapper, otherwise use cwd
+  const projectPath = path.resolve(options.path || process.env.AI_CODER_PROJECT_DIR || process.cwd());
   const projectName = options.name || path.basename(projectPath);
 
   console.log("");

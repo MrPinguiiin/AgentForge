@@ -142,6 +142,7 @@ REM AgentForge (AI Coder) CLI Wrapper
 
 set "INSTALL_DIR=%USERPROFILE%\.ai-coder"
 set "REPO_DIR=%INSTALL_DIR%\repo"
+set "CLI_DIR=%REPO_DIR%\cli"
 
 if not exist "%REPO_DIR%" (
     echo Error: AgentForge is not installed.
@@ -149,7 +150,10 @@ if not exist "%REPO_DIR%" (
     exit /b 1
 )
 
-bun run "%REPO_DIR%\cli\src\index.ts" %*
+set "AI_CODER_PROJECT_DIR=%CD%"
+pushd "%CLI_DIR%"
+bun run src\index.ts %*
+popd
 "@
 
     Set-Content -Path "$BIN_DIR\ai-coder.cmd" -Value $batchContent -Encoding ASCII
@@ -160,6 +164,7 @@ bun run "%REPO_DIR%\cli\src\index.ts" %*
 
 $INSTALL_DIR = "$env:USERPROFILE\.ai-coder"
 $REPO_DIR = "$INSTALL_DIR\repo"
+$CLI_DIR = "$REPO_DIR\cli"
 
 if (-not (Test-Path $REPO_DIR)) {
     Write-Host "Error: AgentForge is not installed." -ForegroundColor Red
@@ -167,7 +172,10 @@ if (-not (Test-Path $REPO_DIR)) {
     exit 1
 }
 
-& bun run "$REPO_DIR\cli\src\index.ts" @args
+$env:AI_CODER_PROJECT_DIR = (Get-Location).Path
+Push-Location $CLI_DIR
+& bun run src\index.ts @args
+Pop-Location
 '@
 
     Set-Content -Path "$BIN_DIR\ai-coder.ps1" -Value $psContent -Encoding UTF8
