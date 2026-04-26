@@ -57,7 +57,7 @@ export async function startCommand(options: StartOptions) {
       }
     }
 
-    await startServer({
+    const server = await startServer({
       port,
       host: "localhost",
       dbPath,
@@ -65,13 +65,22 @@ export async function startCommand(options: StartOptions) {
       aiConfig: (config as Record<string, unknown>).ai as any,
     });
 
-    spinner.succeed(`Server started on port ${port}`);
+    // Use the actual port (may differ from requested if auto-detected)
+    const actualPort = server.port;
 
-    // Open browser
+    if (actualPort !== port) {
+      spinner.succeed(
+        `Server started on port ${actualPort} (port ${port} was in use)`
+      );
+    } else {
+      spinner.succeed(`Server started on port ${actualPort}`);
+    }
+
+    // Open browser on the actual port
     if (options.open !== false) {
       try {
         const open = (await import("open")).default;
-        await open(`http://localhost:${port}`);
+        await open(`http://localhost:${actualPort}`);
       } catch {
         // Silently fail if can't open browser
       }

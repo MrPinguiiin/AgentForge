@@ -10,6 +10,7 @@ import {
 import type { AIConfig } from "@ai-coder/core";
 import { createApp } from "./app.js";
 import { WebSocketHandler } from "./ws/handler.js";
+import { findAvailablePort } from "./utils/port-finder.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -32,6 +33,21 @@ export async function startServer(
   config: Partial<ServerConfig> = {}
 ): Promise<{ port: number; close: () => void }> {
   const finalConfig = { ...DEFAULT_SERVER_CONFIG, ...config };
+
+  // Auto port detection: find an available port
+  const requestedPort = finalConfig.port;
+  const availablePort = await findAvailablePort({
+    preferredPort: requestedPort,
+    host: finalConfig.host,
+  });
+
+  if (availablePort !== requestedPort) {
+    console.log(
+      `  \x1b[33m[PORT]\x1b[0m Port ${requestedPort} is in use, using port ${availablePort} instead`
+    );
+  }
+
+  finalConfig.port = availablePort;
 
   // Ensure .ai-coder directory exists
   const dbDir = path.dirname(finalConfig.dbPath);
@@ -114,7 +130,7 @@ export async function startServer(
   injectWebSocket(server);
 
   return {
-    port: finalConfig.port,
+    port: availablePort,
     close: () => {
       server.close();
     },
@@ -159,6 +175,10 @@ function loadAIConfig(): AIConfig {
 
   return config;
 }
+
+// Re-export utilities
+export { findAvailablePort } from "./utils/port-finder.js";
+export type { FindPortOptions } from "./utils/port-finder.js";
 
 // Allow direct execution
 const currentFile = new URL(import.meta.url).pathname;
