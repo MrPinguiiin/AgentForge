@@ -1,0 +1,41 @@
+{
+  "name": "@ai-coder/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts"
+  },
+  "dependencies": {
+    "ai": "^6.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@ai-sdk/anthropic": "^3.0.0",
+    "@openrouter/ai-sdk-provider": "^2.8.0",
+    "drizzle-orm": "^0.45.0",
+    "better-sqlite3": "^11.7.0",
+    "simple-git": "^3.27.0",
+    "diff": "^7.0.0",
+    "nanoid": "^5.1.0",
+    "zod": "^3.24.0",
+    "eventemitter3": "^5.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/diff": "^6.0.0",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.30.0"
+  }
+}

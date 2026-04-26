@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "paths": {
+      "@ai-coder/core": ["../packages/core/src/index.ts"],
+      "@ai-coder/server": ["../packages/server/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "../packages/core" },
+    { "path": "../packages/server" }
+  ]
+}

@@ -1,0 +1,168 @@
+import { serve } from "@hono/node-server";
+import { createNodeWebSocket } from "@hono/node-ws";
+import {
+  initializeDatabase,
+  Orchestrator,
+  TaskManager,
+  ProviderRegistry,
+  DEFAULT_AI_CONFIG,
+} from "@ai-coder/core";
+import type { AIConfig } from "@ai-coder/core";
+import { createApp } from "./app.js";
+import { WebSocketHandler } from "./ws/handler.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export interface ServerConfig {
+  port: number;
+  host: string;
+  dbPath: string;
+  staticDir?: string;
+  aiConfig?: AIConfig;
+}
+
+const DEFAULT_SERVER_CONFIG: ServerConfig = {
+  port: 3000,
+  host: "localhost",
+  dbPath: ".ai-coder/ai-coder.db",
+  staticDir: undefined,
+};
+
+export async function startServer(
+  config: Partial<ServerConfig> = {}
+): Promise<{ port: number; close: () => void }> {
+  const finalConfig = { ...DEFAULT_SERVER_CONFIG, ...config };
+
+  // Ensure .ai-coder directory exists
+  const dbDir = path.dirname(finalConfig.dbPath);
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+
+  // Initialize database
+  const db = initializeDatabase(finalConfig.dbPath);
+
+  // Load AI config
+  const aiConfig = finalConfig.aiConfig || loadAIConfig();
+
+  // Create task manager and provider registry
+  const taskManager = new TaskManager(db);
+  const providerRegistry = new ProviderRegistry(aiConfig);
+
+  // Create orchestrator
+  const orchestrator = new Orchestrator({
+    projectRoot: process.cwd(),
+    taskManager,
+    providerRegistry,
+    autoCommit: true,
+    autoPush: false,
+  });
+
+  // Create Hono app
+  const app = createApp(orchestrator, finalConfig.staticDir);
+
+  // Setup WebSocket
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+  const wsHandler = new WebSocketHandler(orchestrator);
+
+  app.get(
+    "/ws",
+    upgradeWebSocket((_c) => ({
+      onOpen(_event, ws) {
+        wsHandler.onOpen(ws);
+      },
+      onMessage(event, ws) {
+        wsHandler.onMessage(ws, String(event.data));
+      },
+      onClose(_event, ws) {
+        wsHandler.onClose(ws);
+      },
+      onError(event, ws) {
+        wsHandler.onError(ws, event);
+      },
+    }))
+  );
+
+  // Start server
+  const server = serve(
+    {
+      fetch: app.fetch,
+      port: finalConfig.port,
+      hostname: finalConfig.host,
+    },
+    (info) => {
+      console.log("");
+      console.log(
+        "  \x1b[36m======================================\x1b[0m"
+      );
+      console.log(
+        "  \x1b[1m  AI Coder is running!\x1b[0m"
+      );
+      console.log("");
+      console.log(
+        `  \x1b[32m  http://${finalConfig.host}:${info.port}\x1b[0m`
+      );
+      console.log("");
+      console.log(
+        "  \x1b[36m======================================\x1b[0m"
+      );
+      console.log("");
+    }
+  );
+
+  // Inject WebSocket into the HTTP server
+  injectWebSocket(server);
+
+  return {
+    port: finalConfig.port,
+    close: () => {
+      server.close();
+    },
+  };
+}
+
+function loadAIConfig(): AIConfig {
+  // Try to load from .ai-coder/config.json
+  const configPath = ".ai-coder/config.json";
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed.ai) {
+        return {
+          ...DEFAULT_AI_CONFIG,
+          ...parsed.ai,
+          providers: {
+            ...DEFAULT_AI_CONFIG.providers,
+            ...(parsed.ai.providers || {}),
+          },
+        };
+      }
+    } catch {
+      // Fall through to default
+    }
+  }
+
+  // Use defaults with env vars applied
+  const config = { ...DEFAULT_AI_CONFIG };
+  const envKeys: Record<string, string | undefined> = {
+    openai: process.env.AI_CODER_OPENAI_KEY,
+    anthropic: process.env.AI_CODER_ANTHROPIC_KEY,
+    openrouter: process.env.AI_CODER_OPENROUTER_KEY,
+  };
+
+  for (const [name, key] of Object.entries(envKeys)) {
+    if (key && config.providers[name]) {
+      (config.providers[name] as any).apiKey = key;
+    }
+  }
+
+  return config;
+}
+
+// Allow direct execution
+const currentFile = new URL(import.meta.url).pathname;
+if (process.argv[1] && currentFile.endsWith(process.argv[1].replace(/.*\//, ""))) {
+  const port = parseInt(process.env.AI_CODER_PORT || "3000");
+  startServer({ port });
+}

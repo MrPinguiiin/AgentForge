@@ -1,0 +1,27 @@
+{
+  "name": "ai-coder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local AI Coding Orchestrator - Multi-agent pipeline system",
+  "workspaces": [
+    "packages/*",
+    "cli"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "build": "bun run build:core && bun run build:server && bun run build:ui",
+    "build:core": "bun run --filter @ai-coder/core build",
+    "build:server": "bun run --filter @ai-coder/server build",
+    "build:ui": "bun run --filter @ai-coder/ui build",
+    "build:cli": "bun run --filter ai-coder build",
+    "start": "bun run --filter @ai-coder/server start",
+    "db:generate": "bun run --filter @ai-coder/core db:generate",
+    "db:migrate": "bun run --filter @ai-coder/core db:migrate",
+    "test": "bun run --filter '*' test",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules cli/dist node_modules"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
