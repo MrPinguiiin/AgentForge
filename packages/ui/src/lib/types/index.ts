@@ -1,4 +1,4 @@
-export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'published';
+export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'published';
 
 export interface Project {
   id: string;
@@ -67,5 +67,6 @@ export const COLUMN_CONFIG: ColumnConfig[] = [
   { id: 'todo', title: 'To Do', color: 'text-text-muted', badgeVariant: 'default' },
   { id: 'in_progress', title: 'In Progress', color: 'text-info', badgeVariant: 'info' },
   { id: 'in_review', title: 'In Review', color: 'text-warning', badgeVariant: 'warning' },
+  { id: 'done', title: 'Done', color: 'text-success', badgeVariant: 'success' },
   { id: 'published', title: 'Published', color: 'text-success', badgeVariant: 'success' },
 ];

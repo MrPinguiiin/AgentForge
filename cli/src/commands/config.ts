@@ -45,7 +45,7 @@ export async function configCommand(_options: ConfigOptions) {
 
   // Server
   console.log(chalk.white("  Server:"));
-  console.log(chalk.gray("    Port: "), config.server?.port || 3000);
+  console.log(chalk.gray("    Port: "), config.server?.port || 3001);
   console.log("");
 
   // AI Agents

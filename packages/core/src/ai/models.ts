@@ -3,14 +3,16 @@ import { z } from "zod";
 // --- Zod Schemas ---
 
 export const providerConfigSchema = z.object({
-  type: z.enum(["openai", "anthropic", "openrouter"]),
+  type: z.enum(["openai", "anthropic", "openrouter", "custom"]),
   apiKey: z.string().optional(),
-  baseURL: z.string().url().optional(),
+  baseURL: z.string().optional(),
   enabled: z.boolean().default(true),
+  /** Display name for custom providers */
+  name: z.string().optional(),
 });
 
 export const agentModelConfigSchema = z.object({
-  provider: z.enum(["openai", "anthropic", "openrouter"]),
+  provider: z.string(),
   model: z.string(),
   temperature: z.number().min(0).max(2).default(0.7),
   maxOutputTokens: z.number().positive().default(4096),
@@ -23,7 +25,7 @@ export const aiConfigSchema = z.object({
     coder: agentModelConfigSchema,
     reviewer: agentModelConfigSchema,
   }),
-  defaultProvider: z.enum(["openai", "anthropic", "openrouter"]).default("openrouter"),
+  defaultProvider: z.string().default("openrouter"),
 });
 
 // --- Types ---

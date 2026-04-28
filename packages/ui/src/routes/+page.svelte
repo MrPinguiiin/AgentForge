@@ -8,7 +8,7 @@
     selectProject,
     loadTasks,
   } from '$lib/stores/tasks.js';
-  import { wsStore } from '$lib/stores/ws.js';
+  import { wsStore } from '$lib/stores/ws.svelte.js';
   import type { Project } from '$lib/types/index.js';
   import KanbanBoard from '$lib/components/board/KanbanBoard.svelte';
   import TaskDetail from '$lib/components/board/TaskDetail.svelte';
@@ -22,6 +22,45 @@
   let setupName = $state('');
   let setupPath = $state('');
   let setupLoading = $state(false);
+  let setupError = $state('');
+
+  // Directory browser state
+  let showBrowser = $state(false);
+  let browseDirs = $state<{ name: string; path: string }[]>([]);
+  let browseCurrent = $state('');
+  let browseParent = $state('');
+  let browseIsGitRepo = $state(false);
+  let browseLoading = $state(false);
+
+  async function openBrowser() {
+    showBrowser = true;
+    await loadDirectory();
+  }
+
+  async function loadDirectory(dirPath?: string) {
+    browseLoading = true;
+    try {
+      const result = await api.browseDirectory(dirPath);
+      browseDirs = result.dirs;
+      browseCurrent = result.current;
+      browseParent = result.parent;
+      browseIsGitRepo = result.isGitRepo;
+    } catch (err) {
+      console.error('Failed to browse directory:', err);
+    } finally {
+      browseLoading = false;
+    }
+  }
+
+  function selectDirectory() {
+    setupPath = browseCurrent;
+    if (!setupName.trim()) {
+      // Auto-fill project name from folder name
+      const folderName = browseCurrent.split('/').filter(Boolean).pop() || '';
+      setupName = folderName;
+    }
+    showBrowser = false;
+  }
 
   onMount(() => {
     wsStore.connect();
@@ -62,6 +101,7 @@
     if (!setupName.trim() || !setupPath.trim()) return;
 
     setupLoading = true;
+    setupError = '';
     try {
       const project = await api.createProject(setupName.trim(), setupPath.trim());
       await loadProjects();
@@ -70,6 +110,7 @@
       setupName = '';
       setupPath = '';
     } catch (err) {
+      setupError = err instanceof Error ? err.message : 'Failed to create project';
       console.error('Failed to create project:', err);
     } finally {
       setupLoading = false;
@@ -94,6 +135,12 @@
       <h2 class="text-lg font-semibold text-text mb-1">Welcome to AI Coder</h2>
       <p class="text-sm text-text-muted mb-6">Set up your first project to get started.</p>
 
+      {#if setupError}
+        <div class="mb-4 px-3 py-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg">
+          {setupError}
+        </div>
+      {/if}
+
       <form class="space-y-4" onsubmit={handleCreateProject}>
         <div>
           <label for="project-name" class="block text-xs font-medium text-text-muted mb-1.5">Project Name</label>
@@ -108,21 +155,107 @@
         </div>
 
         <div>
-          <label for="project-path" class="block text-xs font-medium text-text-muted mb-1.5">Project Path</label>
-          <input
-            id="project-path"
-            type="text"
-            bind:value={setupPath}
-            placeholder="/home/user/my-project"
-            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
-            required
-          />
+          <label for="project-path" class="block text-xs font-medium text-text-muted mb-1.5">Project Folder</label>
+          <div class="flex gap-2">
+            <input
+              id="project-path"
+              type="text"
+              bind:value={setupPath}
+              placeholder="Select a folder..."
+              class="flex-1 px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+              readonly
+              required
+            />
+            <button
+              type="button"
+              onclick={openBrowser}
+              class="px-3 py-2 text-sm bg-surface-lighter border border-border rounded-lg text-text hover:bg-surface-lighter/80 transition-colors shrink-0"
+            >
+              Browse
+            </button>
+          </div>
         </div>
 
-        <Button variant="primary" type="submit" loading={setupLoading}>
+        {#if setupPath}
+          <div class="px-3 py-2 text-xs font-mono text-text-muted bg-surface rounded-lg border border-border truncate">
+            {setupPath}
+          </div>
+        {/if}
+
+        <Button variant="primary" type="submit" loading={setupLoading} disabled={!setupPath}>
           Create Project
         </Button>
       </form>
+
+      <!-- Directory Browser Modal -->
+      {#if showBrowser}
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div class="w-[520px] max-h-[70vh] flex flex-col bg-surface-light border border-border rounded-xl shadow-xl">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <h3 class="text-sm font-semibold text-text">Select Project Folder</h3>
+              <button
+                onclick={() => (showBrowser = false)}
+                class="text-text-muted hover:text-text text-lg leading-none"
+              >&times;</button>
+            </div>
+
+            <!-- Current path -->
+            <div class="px-4 py-2 border-b border-border bg-surface shrink-0">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-text-muted truncate flex-1">{browseCurrent}</span>
+                {#if browseIsGitRepo}
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 shrink-0">git</span>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Directory list -->
+            <div class="flex-1 overflow-y-auto min-h-0">
+              {#if browseLoading}
+                <div class="flex items-center justify-center py-8 text-sm text-text-muted">Loading...</div>
+              {:else}
+                <!-- Parent directory -->
+                {#if browseParent !== browseCurrent}
+                  <button
+                    class="w-full flex items-center gap-2 px-4 py-2 text-sm text-text hover:bg-surface-lighter transition-colors text-left"
+                    onclick={() => loadDirectory(browseParent)}
+                  >
+                    <span class="text-text-muted">..</span>
+                    <span class="text-text-muted text-xs">(parent)</span>
+                  </button>
+                {/if}
+
+                {#each browseDirs as dir}
+                  <button
+                    class="w-full flex items-center gap-2 px-4 py-2 text-sm text-text hover:bg-surface-lighter transition-colors text-left"
+                    onclick={() => loadDirectory(dir.path)}
+                  >
+                    <span class="text-primary/70">&#128193;</span>
+                    <span>{dir.name}</span>
+                  </button>
+                {/each}
+
+                {#if browseDirs.length === 0}
+                  <div class="px-4 py-6 text-center text-xs text-text-muted">No subdirectories</div>
+                {/if}
+              {/if}
+            </div>
+
+            <!-- Footer -->
+            <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-border shrink-0">
+              <button
+                onclick={() => (showBrowser = false)}
+                class="px-3 py-1.5 text-sm text-text-muted hover:text-text transition-colors"
+              >Cancel</button>
+              <button
+                onclick={selectDirectory}
+                class="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+              >Select This Folder</button>
+            </div>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {:else}

@@ -61,7 +61,7 @@ export async function initCommand(options: InitOptions) {
       language: language,
     },
     server: {
-      port: 3000,
+      port: 3001,
       host: "localhost",
     },
     ai: {

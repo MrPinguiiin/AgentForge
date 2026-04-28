@@ -24,7 +24,7 @@ export interface ServerConfig {
 }
 
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  port: 3000,
+  port: 3001,
   host: "localhost",
   dbPath: ".ai-coder/ai-coder.db",
   staticDir: undefined,
@@ -71,6 +71,7 @@ export async function startServer(
   const projectRoot = finalConfig.projectRoot || process.env.AI_CODER_PROJECT_DIR || process.cwd();
   const orchestrator = new Orchestrator({
     projectRoot,
+    db,
     taskManager,
     providerRegistry,
     autoCommit: true,
@@ -186,6 +187,6 @@ export type { FindPortOptions } from "./utils/port-finder.js";
 // Allow direct execution
 const currentFile = new URL(import.meta.url).pathname;
 if (process.argv[1] && currentFile.endsWith(process.argv[1].replace(/.*\//, ""))) {
-  const port = parseInt(process.env.AI_CODER_PORT || "3000");
+  const port = parseInt(process.env.AI_CODER_PORT || "3001");
   startServer({ port });
 }

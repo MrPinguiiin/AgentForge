@@ -12,23 +12,24 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts"
   },
   "dependencies": {
-    "ai": "^6.0.0",
-    "@ai-sdk/openai": "^3.0.0",
     "@ai-sdk/anthropic": "^3.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@ai-sdk/openai-compatible": "^2.0.41",
     "@openrouter/ai-sdk-provider": "^2.8.0",
-    "drizzle-orm": "^0.45.0",
-    "simple-git": "^3.27.0",
+    "ai": "^6.0.0",
     "diff": "^7.0.0",
+    "drizzle-orm": "^0.45.0",
+    "eventemitter3": "^5.0.1",
     "nanoid": "^5.1.0",
-    "zod": "^3.24.0",
-    "eventemitter3": "^5.0.1"
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

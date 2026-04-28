@@ -26,6 +26,10 @@ export const inReviewTasks = derived(allTasks, ($tasks) =>
   $tasks.filter((t) => t.status === 'in_review').sort((a, b) => a.columnOrder - b.columnOrder)
 );
 
+export const doneTasks = derived(allTasks, ($tasks) =>
+  $tasks.filter((t) => t.status === 'done').sort((a, b) => a.columnOrder - b.columnOrder)
+);
+
 export const publishedTasks = derived(allTasks, ($tasks) =>
   $tasks.filter((t) => t.status === 'published').sort((a, b) => a.columnOrder - b.columnOrder)
 );
@@ -34,6 +38,7 @@ export const columnTasks: Record<TaskStatus, typeof todoTasks> = {
   todo: todoTasks,
   in_progress: inProgressTasks,
   in_review: inReviewTasks,
+  done: doneTasks,
   published: publishedTasks,
 };
 

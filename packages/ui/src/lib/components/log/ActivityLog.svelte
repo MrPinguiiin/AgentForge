@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { wsStore } from '../../stores/ws.js';
+  import { wsStore } from '../../stores/ws.svelte.js';
   import { onMount } from 'svelte';
 
   interface LogEntry {

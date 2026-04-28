@@ -13,6 +13,7 @@ export type TaskStatus =
   | "in_progress"
   | "in_review"
   | "done"
+  | "published"
   | "cancelled";
 
 export type AgentType = "planner" | "coder" | "reviewer";

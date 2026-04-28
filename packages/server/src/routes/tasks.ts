@@ -9,7 +9,7 @@ const createTaskSchema = z.object({
   description: z.string().optional(),
   parentId: z.string().optional(),
   status: z
-    .enum(["backlog", "todo", "in_progress", "in_review", "done", "cancelled"])
+    .enum(["backlog", "todo", "in_progress", "in_review", "done", "published", "cancelled"])
     .optional(),
   priority: z.number().optional(),
 });
@@ -18,7 +18,7 @@ const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   status: z
-    .enum(["backlog", "todo", "in_progress", "in_review", "done", "cancelled"])
+    .enum(["backlog", "todo", "in_progress", "in_review", "done", "published", "cancelled"])
     .optional(),
   priority: z.number().optional(),
 });

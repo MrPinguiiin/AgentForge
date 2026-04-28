@@ -22,7 +22,7 @@ program
 program
   .command("start")
   .description("Start the AI Coder server and open the browser")
-  .option("-p, --port <port>", "Server port", "3000")
+  .option("-p, --port <port>", "Server port", "3001")
   .option("--no-open", "Don't open browser automatically")
   .action(startCommand);
 

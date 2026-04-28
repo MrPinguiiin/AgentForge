@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const serverConfigSchema = z.object({
-  port: z.number().min(1).max(65535).default(3000),
+  port: z.number().min(1).max(65535).default(3001),
   host: z.string().default("localhost"),
 });
 

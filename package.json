@@ -8,7 +8,10 @@
     "cli"
   ],
   "scripts": {
-    "dev": "bun run --filter '*' dev",
+    "dev:core": "bun run --filter @ai-coder/core dev",
+    "dev:server": "bun run --filter @ai-coder/server dev",
+    "dev:ui": "bun run --filter @ai-coder/ui dev",
+    "dev": "bun run dev:core & bun run dev:server & bun run dev:ui & wait",
     "build": "bun run build:core && bun run build:server && bun run build:ui",
     "build:core": "bun run --filter @ai-coder/core build",
     "build:server": "bun run --filter @ai-coder/server build",

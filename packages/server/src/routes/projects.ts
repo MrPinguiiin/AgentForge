@@ -19,7 +19,7 @@ const updateProjectSchema = z.object({
 
 export function createProjectRoutes(orchestrator: Orchestrator) {
   const app = new Hono();
-  const db = (orchestrator as any).db;
+  const db = orchestrator.db;
 
   // List all projects
   app.get("/", async (c) => {

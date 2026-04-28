@@ -38,7 +38,7 @@ export class TaskManager {
         parentId: input.parentId ?? null,
         title: input.title,
         description: input.description ?? null,
-        status: input.status ?? "backlog",
+        status: input.status ?? "todo",
         priority: input.priority ?? 0,
         agentType: input.agentType ?? null,
         metadata: input.metadata ?? null,

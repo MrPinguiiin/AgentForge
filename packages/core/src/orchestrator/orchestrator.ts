@@ -12,9 +12,12 @@ import { CoderAgent } from "../agents/coder.js";
 import { ReviewerAgent } from "../agents/reviewer.js";
 import type { AgentContext, PlannerResult, CoderResult, ReviewerResult, StreamChunk } from "../agents/types.js";
 import type { Task } from "../db/schema.js";
+import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import type * as dbSchema from "../db/schema.js";
 
 export interface OrchestratorConfig {
   projectRoot: string;
+  db: BunSQLiteDatabase<typeof dbSchema>;
   taskManager: TaskManager;
   providerRegistry: ProviderRegistry;
   autoCommit?: boolean;
@@ -22,6 +25,7 @@ export interface OrchestratorConfig {
 }
 
 export class Orchestrator extends EventEmitter<OrchestratorEvents> {
+  private _db: BunSQLiteDatabase<typeof dbSchema>;
   private taskManager: TaskManager;
   private fileManager: FileManager;
   private gitManager: GitManager;
@@ -37,6 +41,7 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
 
   constructor(config: OrchestratorConfig) {
     super();
+    this._db = config.db;
     this.projectRoot = config.projectRoot;
     this.taskManager = config.taskManager;
     this.providerRegistry = config.providerRegistry;
@@ -58,6 +63,10 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
   }
 
   // --- Public Accessors (used by server routes) ---
+
+  get db(): BunSQLiteDatabase<typeof dbSchema> {
+    return this._db;
+  }
 
   getTaskManager(): TaskManager {
     return this.taskManager;

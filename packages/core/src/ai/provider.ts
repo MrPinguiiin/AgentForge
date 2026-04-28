@@ -2,6 +2,7 @@ import { type LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { AIConfig, AgentModelConfig, ProviderConfig } from "./models.js";
 import { DEFAULT_AI_CONFIG } from "./models.js";
 
@@ -9,7 +10,7 @@ type AgentName = "planner" | "coder" | "reviewer";
 
 export class ProviderRegistry {
   private config: AIConfig;
-  private providerCache: Map<string, ReturnType<typeof createOpenAI> | ReturnType<typeof createAnthropic> | ReturnType<typeof createOpenRouter>> = new Map();
+  private providerCache: Map<string, any> = new Map();
 
   constructor(config?: AIConfig) {
     this.config = config ?? DEFAULT_AI_CONFIG;
@@ -41,12 +42,35 @@ export class ProviderRegistry {
   }
 
   /**
+   * Get the full AI configuration.
+   */
+  getConfig(): AIConfig {
+    return this.config;
+  }
+
+  /**
    * Update the AI configuration.
    */
   updateConfig(newConfig: Partial<AIConfig>): void {
-    this.config = { ...this.config, ...newConfig };
+    if (newConfig.providers) {
+      this.config.providers = { ...this.config.providers, ...newConfig.providers };
+    }
+    if (newConfig.agents) {
+      this.config.agents = { ...this.config.agents, ...newConfig.agents };
+    }
+    if (newConfig.defaultProvider) {
+      this.config.defaultProvider = newConfig.defaultProvider;
+    }
     // Clear cache so providers are re-created with new config
     this.providerCache.clear();
+  }
+
+  /**
+   * Remove a provider from the configuration.
+   */
+  removeProvider(providerName: string): void {
+    delete this.config.providers[providerName];
+    this.providerCache.delete(providerName);
   }
 
   /**
@@ -107,6 +131,16 @@ export class ProviderRegistry {
       case "openrouter":
         return createOpenRouter({
           apiKey: config.apiKey,
+        });
+
+      case "custom":
+        if (!config.baseURL) {
+          throw new Error("Custom provider requires a baseURL");
+        }
+        return createOpenAICompatible({
+          name: config.name || "custom",
+          apiKey: config.apiKey,
+          baseURL: config.baseURL,
         });
 
       default:

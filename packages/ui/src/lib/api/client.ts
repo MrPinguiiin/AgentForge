@@ -23,10 +23,10 @@ export async function listProjects(): Promise<Project[]> {
   return data.projects;
 }
 
-export async function createProject(name: string, path: string): Promise<Project> {
+export async function createProject(name: string, rootPath: string): Promise<Project> {
   const data = await request<{ project: Project }>('/projects', {
     method: 'POST',
-    body: JSON.stringify({ name, path }),
+    body: JSON.stringify({ name, rootPath }),
   });
   return data.project;
 }
@@ -212,4 +212,45 @@ export async function testProvider(provider: string): Promise<unknown> {
     method: 'POST',
     body: JSON.stringify({ provider }),
   });
+}
+
+// ── Custom Providers ──────────────────────
+
+export async function addCustomProvider(provider: {
+  id: string;
+  name: string;
+  apiKey: string;
+  baseURL: string;
+}): Promise<void> {
+  await request('/config/providers', {
+    method: 'POST',
+    body: JSON.stringify(provider),
+  });
+}
+
+export async function deleteCustomProvider(id: string): Promise<void> {
+  await request(`/config/providers/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchProviderModels(
+  providerId: string
+): Promise<{ id: string; name: string; tier: string }[]> {
+  const data = await request<{ models: { id: string; name: string; tier: string }[] }>(
+    `/config/providers/${providerId}/models`
+  );
+  return data.models;
+}
+
+// ── Directory Browser ──────────────────────
+
+export interface BrowseResult {
+  current: string;
+  parent: string;
+  dirs: { name: string; path: string }[];
+  isGitRepo: boolean;
+}
+
+export async function browseDirectory(dirPath?: string): Promise<BrowseResult> {
+  const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
+  return request<BrowseResult>(`/browse${params}`);
 }

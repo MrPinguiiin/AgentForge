@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "@hono/node-server/serve-static";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import type { Orchestrator } from "@ai-coder/core";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createTaskRoutes } from "./routes/tasks.js";
@@ -32,6 +35,39 @@ export function createApp(orchestrator: Orchestrator, staticDir?: string) {
       version: "0.1.0",
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // ── Directory Browser ──────────────────────
+  app.get("/api/browse", async (c) => {
+    const dirPath = c.req.query("path") || os.homedir();
+    const resolved = path.resolve(dirPath);
+
+    try {
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) {
+        return c.json({ error: "Not a directory" }, 400);
+      }
+
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      const dirs = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => ({
+          name: e.name,
+          path: path.join(resolved, e.name),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const isGitRepo = fs.existsSync(path.join(resolved, ".git"));
+
+      return c.json({
+        current: resolved,
+        parent: path.dirname(resolved),
+        dirs,
+        isGitRepo,
+      });
+    } catch {
+      return c.json({ error: "Cannot read directory" }, 400);
+    }
   });
 
   // ── Static Files (SvelteKit build) ──────────────────────
