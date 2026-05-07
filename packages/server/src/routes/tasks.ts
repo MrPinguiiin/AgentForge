@@ -3,24 +3,28 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Orchestrator, TaskStatus } from "@ai-coder/core";
 
+const TASK_STATUSES = [
+  "backlog", "todo", "ready", "planning", "coding", "in_progress",
+  "needs_human", "in_review", "qa", "done", "cancelled", "failed",
+] as const;
+
 const createTaskSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),
+  acceptanceCriteria: z.string().optional(),
   parentId: z.string().optional(),
-  status: z
-    .enum(["todo", "planning", "coding", "in_review", "done", "cancelled"])
-    .optional(),
+  status: z.enum(TASK_STATUSES).optional(),
   priority: z.number().optional(),
 });
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
-  status: z
-    .enum(["todo", "planning", "coding", "in_review", "done", "cancelled"])
-    .optional(),
+  acceptanceCriteria: z.string().optional(),
+  status: z.enum(TASK_STATUSES).optional(),
   priority: z.number().optional(),
+  branch: z.string().optional(),
 });
 
 const moveTaskSchema = z.object({

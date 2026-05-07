@@ -107,6 +107,33 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
     CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
   `);
 
+  // --- Migrations for existing databases ---
+  // Add new columns to tasks table if they don't exist yet
+  const columnMigrations = [
+    "ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT",
+    "ALTER TABLE tasks ADD COLUMN branch TEXT",
+    "ALTER TABLE tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tasks ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE tasks ADD COLUMN routed_at INTEGER",
+    "ALTER TABLE tasks ADD COLUMN started_at INTEGER",
+    "ALTER TABLE tasks ADD COLUMN completed_at INTEGER",
+  ];
+
+  for (const migration of columnMigrations) {
+    try {
+      sqlite!.exec(migration);
+    } catch {
+      // Column already exists - ignore "duplicate column" errors
+    }
+  }
+
+  // Migrate old status values to new ones
+  try {
+    sqlite!.exec("UPDATE tasks SET status = 'backlog' WHERE status = 'todo'");
+  } catch {
+    // Ignore if fails
+  }
+
   return database;
 }
 

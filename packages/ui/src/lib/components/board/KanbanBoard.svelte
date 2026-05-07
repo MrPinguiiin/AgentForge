@@ -24,12 +24,12 @@
   }
 </script>
 
-<div class="flex gap-4 h-full overflow-x-auto p-4">
+<div class="flex gap-6 h-full overflow-x-auto kanban-scroll pb-4 items-start">
   {#each COLUMN_CONFIG as col}
     <KanbanColumn
       status={col.id}
       title={col.title}
-      color={col.color}
+      icon={col.icon}
       tasks={getTasksForStatus($allTasks, col.id)}
       onTaskClick={handleTaskClick}
       onDrop={handleDrop}

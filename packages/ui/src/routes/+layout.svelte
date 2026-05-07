@@ -6,9 +6,9 @@
   let { children }: { children: Snippet } = $props();
 
   const navItems = [
-    { href: '/', label: 'Board', icon: 'kanban' },
-    { href: '/terminal', label: 'Terminal', icon: 'terminal' },
-    { href: '/settings', label: 'Settings', icon: 'settings' },
+    { href: '/', label: 'Kanban Board', icon: 'view_kanban', filled: true },
+    { href: '/terminal', label: 'Terminal', icon: 'terminal', filled: false },
+    { href: '/settings', label: 'Settings', icon: 'settings', filled: false },
   ];
 
   let currentPath = $state('/');
@@ -29,92 +29,98 @@
   });
 </script>
 
-<div class="flex h-screen overflow-hidden bg-surface">
-  <!-- Sidebar -->
-  <aside class="w-56 shrink-0 border-r border-border bg-surface-light flex flex-col">
-    <!-- Branding -->
-    <div class="p-4 border-b border-border">
-      <div class="flex items-center gap-2">
-        <div class="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-          </svg>
-        </div>
-        <div>
-          <h1 class="text-sm font-bold text-text">AI Coder</h1>
-          <p class="text-[10px] text-text-muted">v0.1.0</p>
-        </div>
+<div class="flex h-screen overflow-hidden bg-background">
+  <!-- SideNavBar -->
+  <nav class="bg-surface h-screen w-64 border-r border-outline-variant flex-col py-6 px-4 shrink-0 z-50 hidden md:flex">
+    <!-- Brand Header -->
+    <div class="flex items-center gap-3 mb-8 px-2">
+      <div class="h-8 w-8 rounded-lg bg-primary-container flex items-center justify-center shrink-0">
+        <span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tighter text-on-surface leading-none">AgentForge</h1>
+        <p class="text-secondary text-xs mt-1">v0.1.0</p>
       </div>
     </div>
 
-    <!-- Navigation -->
-    <nav class="flex-1 p-2 space-y-0.5">
-      {#each navItems as item}
-        <a
-          href={item.href}
-          class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors
-            {currentPath === item.href
-              ? 'bg-primary/15 text-primary-light font-medium'
-              : 'text-text-muted hover:text-text hover:bg-surface-lighter'}"
-          onclick={() => (currentPath = item.href)}
-        >
-          {#if item.icon === 'kanban'}
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
-            </svg>
-          {:else if item.icon === 'terminal'}
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          {:else if item.icon === 'settings'}
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          {/if}
-          {item.label}
-        </a>
-      {/each}
-    </nav>
+    <!-- CTA Button -->
+    <button class="w-full bg-primary text-on-primary font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 mb-6 hover:bg-primary-fixed-dim transition-colors">
+      <span class="material-symbols-outlined text-sm">add</span>
+      New Task
+    </button>
 
-    <!-- Footer -->
-    <div class="p-3 border-t border-border space-y-2">
-      <!-- OpenCode Status -->
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2 text-[10px] text-text-muted">
-          {#if openCodeLoading}
-            <span class="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse"></span>
-            <span>Checking OpenCode...</span>
-          {:else if openCodeStatus.installed}
-            <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
-            <span>OpenCode <span class="text-text">v{openCodeStatus.version}</span></span>
-          {:else}
-            <span class="w-1.5 h-1.5 rounded-full bg-text-muted"></span>
-            <span>OpenCode not installed</span>
-          {/if}
-        </div>
-        {#if !openCodeLoading && !openCodeStatus.installed}
-          <a
-            href="https://opencode.ai/docs/"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-[10px] text-primary hover:text-primary-light transition-colors"
-          >
-            Install &rarr;
+    <!-- Main Nav -->
+    <div class="flex-1 overflow-y-auto">
+      <ul class="space-y-1">
+        {#each navItems as item}
+          <li>
+            <a
+              href={item.href}
+              class="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ease-in-out text-sm tracking-tight
+                {currentPath === item.href
+                  ? 'bg-surface-container-highest text-primary font-semibold border-r-2 border-primary'
+                  : 'text-secondary hover:bg-surface-container-high hover:text-on-surface'}"
+              onclick={() => (currentPath = item.href)}
+            >
+              <span
+                class="material-symbols-outlined text-lg"
+                style={currentPath === item.href && item.filled ? "font-variation-settings: 'FILL' 1;" : ''}
+              >{item.icon}</span>
+              {item.label}
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </div>
+
+    <!-- Footer Nav -->
+    <div class="mt-auto pt-6 border-t border-outline-variant">
+      <ul class="space-y-1">
+        <!-- OpenCode Status -->
+        <li>
+          <div class="flex items-center justify-between px-3 py-2">
+            <div class="flex items-center gap-2 text-xs text-secondary">
+              {#if openCodeLoading}
+                <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+                <span>Checking OpenCode...</span>
+              {:else if openCodeStatus.installed}
+                <span class="w-2 h-2 rounded-full bg-tertiary"></span>
+                <span>OpenCode <span class="text-on-surface font-medium">v{openCodeStatus.version}</span></span>
+              {:else}
+                <span class="w-2 h-2 rounded-full bg-secondary"></span>
+                <span>OpenCode</span>
+              {/if}
+            </div>
+            {#if !openCodeLoading && !openCodeStatus.installed}
+              <a
+                href="https://opencode.ai/docs/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-xs text-primary hover:text-primary-fixed-dim transition-colors"
+              >
+                Install &rarr;
+              </a>
+            {/if}
+          </div>
+        </li>
+        <li>
+          <a class="flex items-center gap-3 px-3 py-2 rounded-lg text-secondary hover:bg-surface-container-high hover:text-on-surface transition-all duration-200 ease-in-out text-sm tracking-tight" href="https://github.com" target="_blank">
+            <span class="material-symbols-outlined text-lg">description</span>
+            Docs
           </a>
-        {/if}
-      </div>
-
-      <!-- Server Status -->
-      <div class="flex items-center gap-2 text-[10px] text-text-muted">
-        <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
-        Server connected
-      </div>
+        </li>
+        <li>
+          <div class="flex items-center gap-3 px-3 py-2 text-sm text-secondary">
+            <span class="w-2 h-2 rounded-full bg-tertiary"></span>
+            Server connected
+          </div>
+        </li>
+      </ul>
     </div>
-  </aside>
+  </nav>
 
-  <!-- Main content -->
-  <main class="flex-1 overflow-hidden flex flex-col">
+  <!-- Main Content Area -->
+  <div class="flex-1 flex flex-col min-w-0 bg-background">
     {@render children()}
-  </main>
+  </div>
 </div>

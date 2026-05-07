@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { currentProject } from '$lib/stores/tasks.js';
+  import TopAppBar from '$lib/components/common/TopAppBar.svelte';
   import * as api from '$lib/api/client.js';
 
   interface HistoryEntry {
@@ -170,12 +171,15 @@
 </script>
 
 <svelte:head>
-  <title>AI Coder - Terminal</title>
+  <title>AgentForge - Terminal</title>
 </svelte:head>
 
-<div class="h-full flex flex-col overflow-hidden bg-[#0c0e14]">
+<div class="h-full flex flex-col overflow-hidden bg-surface-container-lowest">
+  <!-- TopAppBar (shared navbar) -->
+  <TopAppBar />
+
   <!-- Terminal Header -->
-  <div class="flex items-center justify-between px-5 py-3 border-b border-border bg-surface-light shrink-0">
+  <div class="flex items-center justify-between px-5 py-3 border-b border-outline-variant bg-surface shrink-0">
     <div class="flex items-center gap-3">
       <div class="flex items-center gap-1.5">
         <span class="w-3 h-3 rounded-full bg-red-500/80"></span>
@@ -183,19 +187,17 @@
         <span class="w-3 h-3 rounded-full bg-green-500/80"></span>
       </div>
       <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-        <span class="text-sm font-medium text-text">Terminal</span>
+        <span class="material-symbols-outlined text-secondary text-lg">terminal</span>
+        <span class="text-sm font-medium text-on-surface">Terminal</span>
       </div>
     </div>
     <div class="flex items-center gap-3">
       {#if $currentProject}
-        <span class="text-[10px] px-2 py-0.5 rounded bg-surface-lighter text-text-muted font-mono">
+        <span class="text-[10px] px-2 py-0.5 rounded bg-surface-container-highest text-secondary font-mono border border-outline-variant">
           {$currentProject.name}
         </span>
       {/if}
-      <span class="text-[10px] text-text-muted font-mono">{getShortCwd(cwd)}</span>
+      <span class="text-[10px] text-secondary font-mono">{getShortCwd(cwd)}</span>
     </div>
   </div>
 
@@ -210,7 +212,7 @@
     <!-- Welcome message -->
     {#if history.length === 0}
       <div class="text-text-muted mb-4 space-y-1">
-        <p class="text-green-400">AI Coder Terminal</p>
+        <p class="text-green-400">AgentForge Terminal</p>
         <p class="text-text-muted text-xs">Connected to project directory. Type commands below.</p>
         <p class="text-text-muted text-xs">Type <span class="text-yellow-400">clear</span> to clear, <span class="text-yellow-400">cd &lt;dir&gt;</span> to navigate.</p>
         <p></p>

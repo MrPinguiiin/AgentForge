@@ -107,18 +107,19 @@ export interface WSMessage {
 export interface ColumnConfig {
   id: TaskStatus;
   title: string;
-  color: string;
+  dotColor: string;
+  textColor: string;
   icon: string;
-  badgeVariant: 'default' | 'info' | 'warning' | 'success' | 'danger';
+  highlight?: boolean;
 }
 
 export const COLUMN_CONFIG: ColumnConfig[] = [
-  { id: 'backlog', title: 'Backlog', color: 'text-muted', icon: '📥', badgeVariant: 'default' },
-  { id: 'ready', title: 'Ready for Agent', color: 'text-success', icon: '🟢', badgeVariant: 'success' },
-  { id: 'in_progress', title: 'In Progress', color: 'text-warning', icon: '⚡', badgeVariant: 'warning' },
-  { id: 'needs_human', title: 'Needs Human', color: 'text-danger', icon: '🙋', badgeVariant: 'danger' },
-  { id: 'in_review', title: 'Review', color: 'text-info', icon: '👀', badgeVariant: 'info' },
-  { id: 'qa', title: 'QA', color: 'text-info', icon: '🧪', badgeVariant: 'info' },
-  { id: 'done', title: 'Done', color: 'text-success', icon: '✅', badgeVariant: 'success' },
-  { id: 'failed', title: 'Failed', color: 'text-danger', icon: '💥', badgeVariant: 'danger' },
+  { id: 'backlog', title: 'Backlog', dotColor: 'bg-secondary', textColor: 'text-secondary', icon: 'inventory_2' },
+  { id: 'ready', title: 'Ready For Agent', dotColor: 'bg-primary-fixed-dim', textColor: 'text-on-surface', icon: 'bolt' },
+  { id: 'in_progress', title: 'In Progress', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'sync', highlight: true },
+  { id: 'needs_human', title: 'Needs Human', dotColor: 'bg-error', textColor: 'text-error', icon: 'warning' },
+  { id: 'in_review', title: 'Review', dotColor: 'bg-[#f59e0b]', textColor: 'text-on-surface', icon: 'rate_review' },
+  { id: 'qa', title: 'QA', dotColor: 'bg-tertiary', textColor: 'text-on-surface', icon: 'bug_report' },
+  { id: 'done', title: 'Done', dotColor: 'bg-tertiary', textColor: 'text-tertiary', icon: 'check_circle' },
+  { id: 'failed', title: 'Failed', dotColor: 'bg-error', textColor: 'text-error', icon: 'error' },
 ];

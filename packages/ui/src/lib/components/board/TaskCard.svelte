@@ -1,52 +1,109 @@
 <script lang="ts">
-  import type { Task } from '../../types/index.js';
-  import Badge from '../common/Badge.svelte';
+  import type { Task, TaskStatus } from '../../types/index.js';
 
   let {
     task,
+    status,
     onclick,
   }: {
     task: Task;
+    status?: TaskStatus;
     onclick?: (task: Task) => void;
   } = $props();
 
-  const priorityLabels: Record<number, { label: string; variant: 'danger' | 'warning' | 'default' }> = {
-    0: { label: 'Low', variant: 'default' },
-    1: { label: 'Medium', variant: 'warning' },
-    2: { label: 'High', variant: 'danger' },
-  };
+  const isInProgress = $derived(status === 'in_progress');
+  const isNeedsHuman = $derived(status === 'needs_human');
+  const isReady = $derived(status === 'ready');
 
-  let priority = $derived(priorityLabels[task.priority] ?? priorityLabels[0]);
+  // Get label badges from task labels
+  const labelBadges = $derived(
+    task.labels?.map(l => l.value) ?? []
+  );
 </script>
 
-<button
-  class="w-full text-left p-3 bg-surface rounded-lg border border-border hover:border-border-light transition-colors cursor-grab active:cursor-grabbing group"
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="bg-surface-container rounded-lg p-4 border transition-colors cursor-grab active:cursor-grabbing group relative overflow-hidden
+    {isInProgress ? 'border-2 border-primary shadow-[0_4px_24px_rgba(167,139,250,0.1)] bg-surface-container-highest' :
+     isNeedsHuman ? 'border-error/30 hover:border-error' :
+     isReady ? 'border-outline-variant hover:border-primary-fixed-dim' :
+     'border-outline-variant hover:border-secondary'}"
   onclick={() => onclick?.(task)}
 >
-  <div class="flex items-start justify-between gap-2 mb-1.5">
-    <h4 class="text-sm font-medium text-text group-hover:text-primary-light transition-colors line-clamp-2">
-      {task.title}
-    </h4>
-    {#if task.priority > 0}
-      <Badge variant={priority.variant}>{priority.label}</Badge>
-    {/if}
+  <!-- Left accent for ready/needs_human -->
+  {#if isReady}
+    <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary-fixed-dim/30"></div>
+  {/if}
+  {#if isNeedsHuman}
+    <div class="absolute left-0 top-0 bottom-0 w-1 bg-error/50"></div>
+  {/if}
+
+  <!-- Agent working indicator for in_progress -->
+  {#if isInProgress && task.agentType}
+    <div class="absolute -top-2 -right-2 bg-surface-container-highest border border-primary rounded-full p-1 shadow-lg flex items-center justify-center animate-pulse">
+      <span class="material-symbols-outlined text-[14px] text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+    </div>
+  {/if}
+
+  <!-- Card Header -->
+  <div class="flex justify-between items-start mb-2 {isReady || isNeedsHuman ? 'pl-1' : ''}">
+    <span class="text-xs text-secondary font-mono tracking-tight">{task.id.slice(0, 8).toUpperCase()}</span>
+    <div class="flex items-center gap-1">
+      {#if isInProgress && task.agentType}
+        <span class="flex items-center gap-1 text-[10px] text-secondary">
+          <span class="material-symbols-outlined text-[12px] animate-spin">sync</span>
+          Working
+        </span>
+      {:else if isNeedsHuman}
+        <span class="material-symbols-outlined text-[14px] text-error">warning</span>
+      {:else if isReady}
+        <span class="flex items-center gap-1 text-[10px] text-tertiary border border-tertiary/30 bg-tertiary/10 px-1.5 py-0.5 rounded">
+          <span class="material-symbols-outlined text-[12px]">bolt</span> Agent Task
+        </span>
+      {:else}
+        <span class="material-symbols-outlined text-[16px] text-secondary opacity-0 group-hover:opacity-100 transition-opacity">drag_indicator</span>
+      {/if}
+    </div>
   </div>
 
+  <!-- Title -->
+  <h4 class="text-sm {isInProgress ? 'font-semibold' : 'font-medium'} text-on-surface mb-2 leading-snug {isReady || isNeedsHuman ? 'pl-1' : ''}">
+    {task.title}
+  </h4>
+
+  <!-- Description (if exists) -->
   {#if task.description}
-    <p class="text-xs text-text-muted line-clamp-2 mb-2">
+    <p class="text-xs text-secondary mb-3 line-clamp-2 {isReady || isNeedsHuman ? 'pl-1' : ''}">
       {task.description}
     </p>
   {/if}
 
-  <div class="flex items-center gap-2 text-[10px] text-text-muted">
-    <span>{task.id.slice(0, 8)}</span>
-    {#if task.subtasks && task.subtasks.length > 0}
-      <span class="flex items-center gap-0.5">
-        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
-        </svg>
-        {task.subtasks.length}
-      </span>
-    {/if}
+  <!-- Footer: Labels + Meta -->
+  <div class="flex items-center justify-between mt-auto pt-2 border-t border-outline-variant/50 {isReady || isNeedsHuman ? 'pl-1' : ''}">
+    <div class="flex gap-2 flex-wrap">
+      {#if labelBadges.length > 0}
+        {#each labelBadges.slice(0, 3) as label}
+          <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-surface-bright text-secondary border border-outline-variant">
+            {label}
+          </span>
+        {/each}
+      {:else if task.agentType}
+        <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-surface-bright text-secondary border border-outline-variant">
+          {task.agentType}
+        </span>
+      {/if}
+    </div>
+
+    <div class="flex items-center gap-2">
+      {#if task.agentType && (isInProgress || status === 'in_review')}
+        <div class="w-5 h-5 rounded-full bg-primary-container border border-primary overflow-hidden flex items-center justify-center">
+          <span class="material-symbols-outlined text-[12px] text-on-primary-container">smart_toy</span>
+        </div>
+      {/if}
+      {#if task.branch}
+        <span class="material-symbols-outlined text-[14px] text-secondary">merge</span>
+      {/if}
+    </div>
   </div>
-</button>
+</div>

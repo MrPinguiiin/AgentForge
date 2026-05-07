@@ -15,6 +15,7 @@
   import TaskDetail from '$lib/components/board/TaskDetail.svelte';
   import AddTaskModal from '$lib/components/board/AddTaskModal.svelte';
   import ActivityLog from '$lib/components/log/ActivityLog.svelte';
+  import TopAppBar from '$lib/components/common/TopAppBar.svelte';
   import Button from '$lib/components/common/Button.svelte';
   import * as api from '$lib/api/client.js';
 
@@ -135,15 +136,15 @@
 </script>
 
 <svelte:head>
-  <title>AI Coder - Board</title>
+  <title>AgentForge - Kanban Board</title>
 </svelte:head>
 
 {#if showSetup && !$currentProject}
   <!-- Project Setup (first time, full page) -->
   <div class="flex-1 flex items-center justify-center">
-    <div class="w-[420px] p-6 bg-surface-light border border-border rounded-xl">
-      <h2 class="text-lg font-semibold text-text mb-1">Welcome to AI Coder</h2>
-      <p class="text-sm text-text-muted mb-6">Set up your first project to get started.</p>
+    <div class="w-[420px] p-6 bg-surface-container border border-outline-variant rounded-xl">
+      <h2 class="text-lg font-semibold text-on-surface mb-1">Welcome to AgentForge</h2>
+      <p class="text-sm text-secondary mb-6">Set up your first project to get started.</p>
 
       {#if setupError}
         <div class="mb-4 px-3 py-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg">
@@ -271,54 +272,69 @@
 {:else}
   <!-- Board View -->
   <div class="flex-1 flex flex-col overflow-hidden">
-    <!-- Top Bar -->
-    <div class="flex items-center justify-between px-5 py-4 border-b border-border shrink-0 bg-surface-light">
-      <div class="flex items-center gap-4">
-        <!-- Project Selector -->
-        {#if $projects.length > 1}
-          <select
-            class="text-base font-semibold bg-surface-lighter border border-border rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary min-w-[160px]"
-            value={$currentProject?.id ?? ''}
-            onchange={handleProjectChange}
-          >
-            {#each $projects as project}
-              <option value={project.id}>{project.name}</option>
-            {/each}
-          </select>
-        {:else if $currentProject}
-          <h2 class="text-base font-bold text-text">{$currentProject.name}</h2>
-        {/if}
-
-        {#if $currentProject?.framework}
-          <span class="text-xs px-2 py-1 rounded-md bg-primary/10 text-primary font-medium">
-            {$currentProject.framework}
-          </span>
-        {/if}
-      </div>
-
-      <div class="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onclick={() => (showSetup = true)}>
-          + Project
-        </Button>
-        <Button variant="primary" size="sm" onclick={() => (showAddTask = true)}>
-          + Task
-        </Button>
-      </div>
-    </div>
-
-    <!-- Kanban Board -->
-    <div class="flex-1 overflow-hidden">
-      {#if $isLoading && !$currentProject}
-        <div class="flex items-center justify-center h-full text-sm text-text-muted">
-          Loading...
+    <!-- TopAppBar -->
+    <TopAppBar>
+      {#snippet actions()}
+        <!-- Search -->
+        <div class="relative hidden sm:block">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary text-sm">search</span>
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            class="bg-surface-container text-sm text-on-surface border border-outline-variant rounded-full pl-9 pr-4 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent w-48 placeholder:text-secondary transition-all focus:w-64"
+          />
         </div>
-      {:else}
-        <KanbanBoard />
-      {/if}
-    </div>
 
-    <!-- Activity Log -->
-    <ActivityLog />
+        <!-- Icon Actions -->
+        <div class="flex items-center gap-2 border-r border-outline-variant pr-4">
+          <button
+            class="w-8 h-8 rounded-full flex items-center justify-center text-secondary hover:bg-surface-container-high hover:text-on-surface transition-colors active:scale-95"
+            onclick={() => (showSetup = true)}
+            title="Add Project"
+          >
+            <span class="material-symbols-outlined text-[20px]">create_new_folder</span>
+          </button>
+          <button class="w-8 h-8 rounded-full flex items-center justify-center text-secondary hover:bg-surface-container-high hover:text-on-surface transition-colors relative active:scale-95">
+            <span class="material-symbols-outlined text-[20px]">notifications</span>
+          </button>
+        </div>
+
+        <!-- Create Task Button -->
+        <button
+          class="bg-primary text-on-primary px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-primary-fixed-dim transition-colors active:scale-95"
+          onclick={() => (showAddTask = true)}
+        >
+          Create Task
+        </button>
+      {/snippet}
+    </TopAppBar>
+
+    <!-- Board Canvas -->
+    <main class="flex-1 overflow-hidden flex flex-col p-6">
+      <!-- Board Header -->
+      <div class="flex justify-between items-center mb-6 shrink-0">
+        <div class="flex items-center gap-4">
+          <h2 class="text-2xl font-bold text-on-surface tracking-tight">Active Board</h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="text-secondary hover:text-on-surface text-sm flex items-center gap-1 transition-colors">
+            <span class="material-symbols-outlined text-[18px]">filter_list</span>
+            Filter
+          </button>
+        </div>
+      </div>
+
+      <!-- Kanban Board -->
+      <div class="flex-1 overflow-hidden">
+        {#if $isLoading && !$currentProject}
+          <div class="flex items-center justify-center h-full text-sm text-secondary">
+            Loading...
+          </div>
+        {:else}
+          <KanbanBoard />
+        {/if}
+      </div>
+    </main>
   </div>
 
   <!-- Task Detail Slide-over -->

@@ -258,7 +258,7 @@
 </script>
 
 <svelte:head>
-  <title>AI Coder - Settings</title>
+  <title>AgentForge - Settings</title>
 </svelte:head>
 
 <div class="flex-1 overflow-y-auto">
