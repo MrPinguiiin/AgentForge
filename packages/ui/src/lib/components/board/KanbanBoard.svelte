@@ -20,7 +20,7 @@
   function getTasksForStatus(tasks: Task[], status: TaskStatus): Task[] {
     return tasks
       .filter(t => t.status === status && !t.parentId)
-      .sort((a, b) => a.columnOrder - b.columnOrder);
+      .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 </script>
 

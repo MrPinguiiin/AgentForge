@@ -37,6 +37,42 @@
         "model": "claude-sonnet-4-20250514",
         "temperature": 0.1,
         "maxTokens": 4096
+      },
+      "frontend": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "temperature": 0.2,
+        "maxTokens": 8192
+      },
+      "backend": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "temperature": 0.2,
+        "maxTokens": 8192
+      },
+      "debugger": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "temperature": 0.1,
+        "maxTokens": 8192
+      },
+      "qa": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "temperature": 0.2,
+        "maxTokens": 8192
+      },
+      "docs": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "temperature": 0.3,
+        "maxTokens": 4096
+      },
+      "explore": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "temperature": 0.1,
+        "maxTokens": 4096
       }
     }
   },
@@ -58,5 +94,25 @@
     "autoCommit": true,
     "autoPush": false,
     "commitPrefix": "ai-coder:"
+  },
+  "router": {
+    "maxParallelTasks": 3,
+    "autoCreateBranch": true,
+    "branchPattern": "agent/{area}-{slug}",
+    "requireTestsPass": true,
+    "highRiskRequiresHuman": true,
+    "pollIntervalMs": 0
+  },
+  "guardrails": {
+    "protectedBranches": ["main", "master", "production", "develop"],
+    "maxRetries": 3,
+    "requireTestsPass": true,
+    "requireLintPass": false,
+    "maxFilesPerRun": 20,
+    "maxLinesPerRun": 1000,
+    "readOnlyAgents": ["explore", "planner"],
+    "maxParallelExecutions": 3,
+    "agentTimeoutMs": 300000,
+    "createBackupBranch": false
   }
 }

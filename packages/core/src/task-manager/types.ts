@@ -1,23 +1,39 @@
-import type { TaskStatus, AgentType, TaskFileStatus, Task, TaskFile } from "../db/schema.js";
+import type { TaskStatus, AgentType, TaskFileStatus, LabelCategory, Task, TaskFile, TaskLabel } from "../db/schema.js";
 
 export interface CreateTaskInput {
   projectId: string;
   title: string;
   description?: string;
+  acceptanceCriteria?: string;
   parentId?: string;
   status?: TaskStatus;
   priority?: number;
   agentType?: AgentType;
+  branch?: string;
   metadata?: Record<string, unknown>;
+  labels?: Array<{ category: LabelCategory; value: string }>;
 }
 
 export interface UpdateTaskInput {
   title?: string;
   description?: string;
+  acceptanceCriteria?: string;
   status?: TaskStatus;
   priority?: number;
   agentType?: AgentType;
+  branch?: string;
+  retryCount?: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface AddTaskLabelInput {
+  taskId: string;
+  category: LabelCategory;
+  value: string;
+}
+
+export interface TaskWithLabels extends Task {
+  labels: TaskLabel[];
 }
 
 export interface TaskWithSubtasks extends Task {

@@ -15,31 +15,31 @@ export const isLoading = writable(false);
 // ── Derived Stores (per column) ──────────────────────
 
 export const todoTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'todo').sort((a, b) => a.columnOrder - b.columnOrder)
+  $tasks.filter((t) => t.status === 'todo').sort((a, b) => a.sortOrder - b.sortOrder)
 );
 
-export const inProgressTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'in_progress').sort((a, b) => a.columnOrder - b.columnOrder)
+export const planningTasks = derived(allTasks, ($tasks) =>
+  $tasks.filter((t) => t.status === 'planning').sort((a, b) => a.sortOrder - b.sortOrder)
+);
+
+export const codingTasks = derived(allTasks, ($tasks) =>
+  $tasks.filter((t) => t.status === 'coding').sort((a, b) => a.sortOrder - b.sortOrder)
 );
 
 export const inReviewTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'in_review').sort((a, b) => a.columnOrder - b.columnOrder)
+  $tasks.filter((t) => t.status === 'in_review').sort((a, b) => a.sortOrder - b.sortOrder)
 );
 
 export const doneTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'done').sort((a, b) => a.columnOrder - b.columnOrder)
-);
-
-export const publishedTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'published').sort((a, b) => a.columnOrder - b.columnOrder)
+  $tasks.filter((t) => t.status === 'done').sort((a, b) => a.sortOrder - b.sortOrder)
 );
 
 export const columnTasks: Record<TaskStatus, typeof todoTasks> = {
   todo: todoTasks,
-  in_progress: inProgressTasks,
+  planning: planningTasks,
+  coding: codingTasks,
   in_review: inReviewTasks,
   done: doneTasks,
-  published: publishedTasks,
 };
 
 // ── Actions ──────────────────────
@@ -104,7 +104,7 @@ export function clearSelectedTask(): void {
 export async function moveTaskToColumn(taskId: string, newStatus: TaskStatus, order?: number): Promise<void> {
   const task = await api.moveTask(taskId, newStatus, order);
   allTasks.update((tasks) =>
-    tasks.map((t) => (t.id === taskId ? { ...t, status: task.status, columnOrder: task.columnOrder } : t))
+    tasks.map((t) => (t.id === taskId ? { ...t, status: task.status, sortOrder: task.sortOrder } : t))
   );
 }
 
@@ -138,6 +138,14 @@ export async function runPublish(taskId: string): Promise<void> {
   await api.publishTask(taskId);
 }
 
-export async function runFullPipeline(taskId: string): Promise<void> {
-  await api.runPipeline(taskId);
+export async function runFullPipeline(taskId: string, autoReview = false): Promise<void> {
+  await api.runPipeline(taskId, autoReview);
+}
+
+export async function acceptReview(taskId: string): Promise<void> {
+  await api.acceptTask(taskId);
+}
+
+export async function declineReview(taskId: string): Promise<void> {
+  await api.declineTask(taskId);
 }

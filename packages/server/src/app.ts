@@ -10,6 +10,9 @@ import { createTaskRoutes } from "./routes/tasks.js";
 import { createGitRoutes } from "./routes/git.js";
 import { createConfigRoutes } from "./routes/config.js";
 import { createAgentRoutes } from "./routes/agents.js";
+import { createKanbanRoutes } from "./routes/kanban.js";
+import { createToolsRoutes } from "./routes/tools.js";
+import { createLandingRoutes } from "./routes/landing.js";
 import { errorHandler } from "./middleware/error.js";
 import { requestLogger } from "./middleware/logger.js";
 
@@ -21,12 +24,17 @@ export function createApp(orchestrator: Orchestrator, staticDir?: string) {
   app.use("*", errorHandler);
   app.use("/api/*", requestLogger);
 
+  // ── Landing Page ──────────────────────
+  app.route("/", createLandingRoutes());
+
   // ── API Routes ──────────────────────
   app.route("/api/projects", createProjectRoutes(orchestrator));
   app.route("/api/tasks", createTaskRoutes(orchestrator));
   app.route("/api/git", createGitRoutes(orchestrator));
   app.route("/api/config", createConfigRoutes(orchestrator));
   app.route("/api/agents", createAgentRoutes(orchestrator));
+  app.route("/api/kanban", createKanbanRoutes(orchestrator));
+  app.route("/api/tools", createToolsRoutes());
 
   // ── Health Check ──────────────────────
   app.get("/api/health", (c) => {

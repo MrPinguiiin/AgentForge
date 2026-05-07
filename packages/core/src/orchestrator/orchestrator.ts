@@ -176,6 +176,11 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     this.transitionTo("planning");
     this.emit("agent:start", taskId, "planner");
 
+    // Move task to "planning" column
+    await this.taskManager.updateTask(taskId, { status: "planning" });
+    const updatedTask = await this.taskManager.getTask(taskId);
+    if (updatedTask) this.emit("task:updated", updatedTask);
+
     const task = await this.taskManager.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
 
@@ -223,7 +228,11 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
       }
 
       await this.taskManager.completeAgentRun(run.id, result as unknown as Record<string, unknown>);
-      await this.taskManager.updateTask(taskId, { status: "todo" });
+
+      // Planning done -> move to coding column (ready for coder)
+      await this.taskManager.updateTask(taskId, { status: "coding" });
+      const afterPlan = await this.taskManager.getTask(taskId);
+      if (afterPlan) this.emit("task:updated", afterPlan);
 
       this.emit("agent:complete", taskId, "planner");
       this.emit("plan:created", taskId, result);
@@ -244,6 +253,11 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     this.currentTaskId = taskId;
     this.transitionTo("coding");
     this.emit("agent:start", taskId, "coder");
+
+    // Move task to "coding" column
+    await this.taskManager.updateTask(taskId, { status: "coding" });
+    const codingTask = await this.taskManager.getTask(taskId);
+    if (codingTask) this.emit("task:updated", codingTask);
 
     const task = await this.taskManager.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
@@ -272,7 +286,6 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
       result = iterResult.value;
 
       await this.taskManager.completeAgentRun(run.id, result as unknown as Record<string, unknown>);
-      await this.taskManager.updateTask(taskId, { status: "in_progress" });
 
       this.emit("agent:complete", taskId, "coder");
       this.emit("code:generated", taskId, result);
@@ -311,26 +324,10 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
 
     this.emit("code:applied", taskId, appliedFiles);
 
-    // Auto-commit if enabled
-    if (this.autoCommit && appliedFiles.length > 0) {
-      this.transitionTo("committing");
-      try {
-        const commitResult = await this.gitManager.autoCommit(
-          "feat",
-          `${task.title} (AI-generated)`
-        );
-        this.emit("git:committed", taskId, commitResult.hash, commitResult.message);
-
-        if (this.autoPush) {
-          this.transitionTo("pushing");
-          const branch = await this.gitManager.getCurrentBranch();
-          await this.gitManager.push("origin", branch);
-          this.emit("git:pushed", taskId, branch);
-        }
-      } catch {
-        // Git errors are non-fatal
-      }
-    }
+    // Coding done -> move to in_review
+    await this.taskManager.updateTask(taskId, { status: "in_review" });
+    const afterCode = await this.taskManager.getTask(taskId);
+    if (afterCode) this.emit("task:updated", afterCode);
 
     return result;
   }
@@ -373,8 +370,12 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
       if (result.approved) {
         await this.taskManager.updateTask(taskId, { status: "done" });
       } else {
+        // Review rejected -> stay in_review for user to decide
         await this.taskManager.updateTask(taskId, { status: "in_review" });
       }
+
+      const afterReview = await this.taskManager.getTask(taskId);
+      if (afterReview) this.emit("task:updated", afterReview);
 
       this.emit("agent:complete", taskId, "reviewer");
       this.emit("review:completed", taskId, result);
@@ -391,39 +392,43 @@ export class Orchestrator extends EventEmitter<OrchestratorEvents> {
     return result;
   }
 
-  async runFullPipeline(taskId: string): Promise<{
+  async runFullPipeline(taskId: string, options?: { autoReview?: boolean }): Promise<{
     plan: PlannerResult;
     code: CoderResult;
-    review: ReviewerResult;
+    review?: ReviewerResult;
   }> {
     this.currentTaskId = taskId;
     this.emit("pipeline:start", taskId);
 
     try {
+      // Step 1: Plan
       const plan = await this.planTask(taskId);
 
-      // Code each subtask
+      // Step 2: Code
       const task = await this.taskManager.getTaskWithSubtasks(taskId);
       if (!task) throw new Error(`Task not found: ${taskId}`);
 
       let code: CoderResult = { explanation: "", operations: [] };
 
       if (task.subtasks.length > 0) {
-        // Code the first subtask (simplified - in production would iterate)
         for (const subtask of task.subtasks) {
-          this.currentStage = "idle"; // Reset for next transition
+          this.currentStage = "idle";
           const subtaskCode = await this.codeTask(subtask.id);
           code.explanation += subtaskCode.explanation + "\n";
           code.operations.push(...subtaskCode.operations);
         }
       } else {
-        this.currentStage = "planning"; // After planning, transition to coding
+        this.currentStage = "planning";
         code = await this.codeTask(taskId);
       }
 
-      // Review
-      this.currentStage = "applying"; // Reset for review transition
-      const review = await this.reviewTask(taskId);
+      // Step 3: Review (only if autoReview is enabled)
+      let review: ReviewerResult | undefined;
+      if (options?.autoReview) {
+        this.currentStage = "coding";
+        review = await this.reviewTask(taskId);
+      }
+      // If autoReview is off, task stays in "in_review" for user to manually accept/decline
 
       this.currentStage = "completed" as PipelineStage;
       this.emit("pipeline:complete", taskId);

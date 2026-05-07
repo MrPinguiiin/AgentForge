@@ -5,11 +5,15 @@ import * as schema from "../db/schema.js";
 import {
   tasks,
   taskFiles,
+  taskLabels,
   agentRuns,
   type Task,
   type TaskFile,
+  type TaskLabel,
   type AgentRun,
   type AgentType,
+  type TaskStatus,
+  type LabelCategory,
 } from "../db/schema.js";
 import type {
   CreateTaskInput,
@@ -19,6 +23,7 @@ import type {
   ReorderTaskInput,
   AddTaskFileInput,
   UpdateTaskFileInput,
+  AddTaskLabelInput,
 } from "./types.js";
 
 export class TaskManager {
@@ -281,5 +286,124 @@ export class TaskManager {
       .returning();
 
     return updated;
+  }
+
+  // --- Task Labels ---
+
+  async getTaskLabels(taskId: string): Promise<TaskLabel[]> {
+    return this.db
+      .select()
+      .from(taskLabels)
+      .where(eq(taskLabels.taskId, taskId));
+  }
+
+  async addTaskLabel(input: AddTaskLabelInput): Promise<TaskLabel> {
+    const id = nanoid();
+    const now = new Date();
+
+    const [label] = await this.db
+      .insert(taskLabels)
+      .values({
+        id,
+        taskId: input.taskId,
+        category: input.category,
+        value: input.value,
+        createdAt: now,
+      })
+      .returning();
+
+    return label;
+  }
+
+  async removeTaskLabel(taskId: string, category: LabelCategory, value: string): Promise<boolean> {
+    const result = await this.db
+      .delete(taskLabels)
+      .where(
+        and(
+          eq(taskLabels.taskId, taskId),
+          eq(taskLabels.category, category),
+          eq(taskLabels.value, value)
+        )
+      )
+      .returning();
+
+    return result.length > 0;
+  }
+
+  async setTaskLabels(taskId: string, labels: Array<{ category: LabelCategory; value: string }>): Promise<TaskLabel[]> {
+    // Remove all existing labels
+    await this.db
+      .delete(taskLabels)
+      .where(eq(taskLabels.taskId, taskId));
+
+    // Add new labels
+    const results: TaskLabel[] = [];
+    for (const label of labels) {
+      const created = await this.addTaskLabel({
+        taskId,
+        category: label.category,
+        value: label.value,
+      });
+      results.push(created);
+    }
+
+    return results;
+  }
+
+  // --- Kanban Queries ---
+
+  async getTasksByStatus(status: TaskStatus): Promise<Task[]> {
+    return this.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.status, status))
+      .orderBy(desc(tasks.priority), asc(tasks.sortOrder));
+  }
+
+  async getTasksByStatusForProject(projectId: string, status: TaskStatus): Promise<Task[]> {
+    return this.db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.projectId, projectId), eq(tasks.status, status)))
+      .orderBy(desc(tasks.priority), asc(tasks.sortOrder));
+  }
+
+  async moveTaskToReady(taskId: string): Promise<Task | undefined> {
+    return this.updateTask(taskId, { status: "ready" });
+  }
+
+  async moveTaskToBacklog(taskId: string): Promise<Task | undefined> {
+    return this.updateTask(taskId, { status: "backlog" });
+  }
+
+  async getKanbanBoard(projectId: string): Promise<Record<TaskStatus, Task[]>> {
+    const allTasks = await this.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.projectId, projectId))
+      .orderBy(desc(tasks.priority), asc(tasks.sortOrder));
+
+    const board: Record<string, Task[]> = {
+      backlog: [],
+      todo: [],
+      ready: [],
+      planning: [],
+      coding: [],
+      in_progress: [],
+      needs_human: [],
+      in_review: [],
+      qa: [],
+      done: [],
+      cancelled: [],
+      failed: [],
+    };
+
+    for (const task of allTasks) {
+      if (board[task.status]) {
+        board[task.status].push(task);
+      }
+    }
+
+    return board as Record<TaskStatus, Task[]>;
   }
 }

@@ -9,7 +9,7 @@ const createTaskSchema = z.object({
   description: z.string().optional(),
   parentId: z.string().optional(),
   status: z
-    .enum(["backlog", "todo", "in_progress", "in_review", "done", "published", "cancelled"])
+    .enum(["todo", "planning", "coding", "in_review", "done", "cancelled"])
     .optional(),
   priority: z.number().optional(),
 });
@@ -18,7 +18,7 @@ const updateTaskSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   status: z
-    .enum(["backlog", "todo", "in_progress", "in_review", "done", "published", "cancelled"])
+    .enum(["todo", "planning", "coding", "in_review", "done", "cancelled"])
     .optional(),
   priority: z.number().optional(),
 });
@@ -103,6 +103,34 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
     return c.json({ success: true });
   });
 
+  // Change task status (used by Kanban drag-and-drop)
+  app.patch("/:id/status", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json() as { status: string; order?: number };
+
+    const oldTask = await taskManager.getTask(id);
+    if (!oldTask) {
+      return c.json({ error: "Task not found" }, 404);
+    }
+
+    const updates: Record<string, unknown> = { status: body.status };
+    if (body.order !== undefined) {
+      updates.sortOrder = body.order;
+    }
+
+    const task = await taskManager.updateTask(id, updates as any);
+    if (!task) {
+      return c.json({ error: "Task not found" }, 404);
+    }
+
+    orchestrator.emit("task:updated", task);
+    if (oldTask.status !== body.status) {
+      orchestrator.emit("task:statusChanged", task, oldTask.status, body.status);
+    }
+
+    return c.json({ task });
+  });
+
   // Move task (change parent)
   app.patch(
     "/:id/move",
@@ -178,6 +206,48 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
     try {
       const result = await orchestrator.reviewTask(id);
       return c.json({ result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // Accept review - move task to done
+  app.post("/:id/accept", async (c) => {
+    const id = c.req.param("id");
+
+    try {
+      const task = await taskManager.getTask(id);
+      if (!task) {
+        return c.json({ error: "Task not found" }, 404);
+      }
+
+      await taskManager.updateTask(id, { status: "done" });
+      const updated = await taskManager.getTask(id);
+      if (updated) orchestrator.emit("task:updated", updated);
+
+      return c.json({ success: true, task: updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // Decline review - move task back to coding for rework
+  app.post("/:id/decline", async (c) => {
+    const id = c.req.param("id");
+
+    try {
+      const task = await taskManager.getTask(id);
+      if (!task) {
+        return c.json({ error: "Task not found" }, 404);
+      }
+
+      await taskManager.updateTask(id, { status: "coding" });
+      const updated = await taskManager.getTask(id);
+      if (updated) orchestrator.emit("task:updated", updated);
+
+      return c.json({ success: true, task: updated });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: message }, 500);

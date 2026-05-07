@@ -11,6 +11,8 @@
     runReview,
     runPublish,
     runFullPipeline,
+    acceptReview,
+    declineReview,
   } from '../../stores/tasks.js';
   import Button from '../common/Button.svelte';
   import Badge from '../common/Badge.svelte';
@@ -22,18 +24,22 @@
   let runs = $derived($selectedTaskRuns);
   let actionLoading = $state<string | null>(null);
 
+  let autoReview = $state(false);
+
   const statusBadge: Record<string, 'default' | 'info' | 'warning' | 'success'> = {
     todo: 'default',
-    in_progress: 'info',
+    planning: 'info',
+    coding: 'warning',
     in_review: 'warning',
-    published: 'success',
+    done: 'success',
   };
 
   const statusLabels: Record<string, string> = {
     todo: 'To Do',
-    in_progress: 'In Progress',
+    planning: 'Planning',
+    coding: 'Coding',
     in_review: 'In Review',
-    published: 'Published',
+    done: 'Done',
   };
 
   async function handleAction(action: string) {
@@ -54,7 +60,13 @@
           await runPublish(task.id);
           break;
         case 'pipeline':
-          await runFullPipeline(task.id);
+          await runFullPipeline(task.id, autoReview);
+          break;
+        case 'accept':
+          await acceptReview(task.id);
+          break;
+        case 'decline':
+          await declineReview(task.id);
           break;
       }
       await refreshSelectedTask();
@@ -129,41 +141,84 @@
         {/if}
       </div>
 
-      <!-- Actions -->
+      <!-- Pipeline Progress -->
       <div class="p-4 border-b border-border">
-        <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Pipeline Actions</h3>
-        <div class="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={actionLoading === 'plan'}
-            onclick={() => handleAction('plan')}
-          >Plan</Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={actionLoading === 'code'}
-            onclick={() => handleAction('code')}
-          >Code</Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={actionLoading === 'review'}
-            onclick={() => handleAction('review')}
-          >Review</Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={actionLoading === 'publish'}
-            onclick={() => handleAction('publish')}
-          >Publish</Button>
-          <Button
-            variant="primary"
-            size="sm"
-            loading={actionLoading === 'pipeline'}
-            onclick={() => handleAction('pipeline')}
-          >Run Full Pipeline</Button>
+        <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Pipeline</h3>
+
+        <!-- Progress bar -->
+        <div class="flex items-center gap-1 mb-4">
+          {#each ['todo', 'planning', 'coding', 'in_review', 'done'] as stage, i}
+            {@const stages = ['todo', 'planning', 'coding', 'in_review', 'done']}
+            {@const currentIdx = stages.indexOf(task.status)}
+            <div class="flex-1 h-1.5 rounded-full {i <= currentIdx ? 'bg-primary' : 'bg-surface-lighter'}"></div>
+          {/each}
         </div>
+
+        <!-- Contextual actions based on status -->
+        <div class="flex flex-wrap gap-2">
+          {#if task.status === 'todo'}
+            <!-- Auto-review toggle -->
+            <label class="flex items-center gap-2 text-xs text-text-muted mr-2 cursor-pointer">
+              <input type="checkbox" bind:checked={autoReview} class="rounded" />
+              Auto Review
+            </label>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={actionLoading === 'pipeline'}
+              onclick={() => handleAction('pipeline')}
+            >Run Full Pipeline</Button>
+          {:else if task.status === 'planning'}
+            <span class="text-xs text-info flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-info animate-pulse"></span>
+              AI is planning...
+            </span>
+          {:else if task.status === 'coding'}
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={actionLoading === 'code'}
+              onclick={() => handleAction('code')}
+            >Run Coder</Button>
+            <span class="text-xs text-text-muted">AI is writing code</span>
+          {:else if task.status === 'in_review'}
+            <Button
+              variant="primary"
+              size="sm"
+              loading={actionLoading === 'accept'}
+              onclick={() => handleAction('accept')}
+            >Accept</Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={actionLoading === 'decline'}
+              onclick={() => handleAction('decline')}
+            >Decline</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={actionLoading === 'review'}
+              onclick={() => handleAction('review')}
+            >AI Review</Button>
+          {:else if task.status === 'done'}
+            <span class="text-xs text-success flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-success"></span>
+              Completed
+            </span>
+          {/if}
+        </div>
+
+        <!-- Manual step buttons (collapsed) -->
+        {#if task.status !== 'done'}
+          <details class="mt-3">
+            <summary class="text-[10px] text-text-muted cursor-pointer hover:text-text">Manual Steps</summary>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <Button variant="ghost" size="sm" loading={actionLoading === 'plan'} onclick={() => handleAction('plan')}>Plan</Button>
+              <Button variant="ghost" size="sm" loading={actionLoading === 'code'} onclick={() => handleAction('code')}>Code</Button>
+              <Button variant="ghost" size="sm" loading={actionLoading === 'review'} onclick={() => handleAction('review')}>Review</Button>
+            </div>
+          </details>
+        {/if}
       </div>
 
       <!-- File Changes -->

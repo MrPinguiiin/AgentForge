@@ -28,9 +28,11 @@ export function createAgentRoutes(orchestrator: Orchestrator) {
   // Run full pipeline on a task
   app.post("/pipeline/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const autoReview = body.autoReview as boolean | undefined;
 
     try {
-      orchestrator.runFullPipeline(taskId).catch((error: unknown) => {
+      orchestrator.runFullPipeline(taskId, { autoReview: autoReview ?? false }).catch((error: unknown) => {
         console.error(`Pipeline failed for task ${taskId}:`, error);
       });
 

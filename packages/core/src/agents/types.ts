@@ -1,5 +1,5 @@
 import type { LanguageModel } from "ai";
-import type { Task, TaskFile } from "../db/schema.js";
+import type { AgentType, Task, TaskFile, TaskLabel } from "../db/schema.js";
 
 export interface AgentContext {
   task: Task;
@@ -10,6 +10,8 @@ export interface AgentContext {
   framework?: string;
   language?: string;
   taskFiles?: TaskFile[];
+  labels?: TaskLabel[];
+  branch?: string;
 }
 
 export interface StreamChunk {
@@ -26,6 +28,7 @@ export interface SubtaskPlan {
   files: string[];
   priority: number;
   estimatedComplexity: "low" | "medium" | "high";
+  labels?: Array<{ category: string; value: string }>;
 }
 
 export interface PlannerResult {
@@ -67,9 +70,57 @@ export interface ReviewerResult {
   files: FileReview[];
 }
 
+// --- QA ---
+
+export interface TestReport {
+  testsAdded: number;
+  coverageAreas: string[];
+  regressionRisks: string[];
+}
+
+export interface QAResult {
+  explanation: string;
+  operations: FileOperationPlan[];
+  testReport: TestReport;
+}
+
+// --- Explore / Research ---
+
+export interface ResearchFinding {
+  path: string;
+  purpose: string;
+  relevance: string;
+}
+
+export interface ExploreResult {
+  explanation: string;
+  operations: FileOperationPlan[]; // Always empty for explore agent
+  research: {
+    summary: string;
+    relevantFiles: ResearchFinding[];
+    architecture: string;
+    recommendations: string[];
+    risks: string[];
+  };
+}
+
 // --- Agent Interface ---
 
 export interface Agent<TResult> {
   name: string;
   execute(context: AgentContext): AsyncGenerator<StreamChunk, TResult, undefined>;
 }
+
+// --- Agent Registry (maps AgentType to result types) ---
+
+export type AgentResultMap = {
+  planner: PlannerResult;
+  coder: CoderResult;
+  reviewer: ReviewerResult;
+  frontend: CoderResult;
+  backend: CoderResult;
+  debugger: CoderResult;
+  qa: QAResult;
+  docs: CoderResult;
+  explore: ExploreResult;
+};

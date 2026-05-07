@@ -41,13 +41,28 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
       parent_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
+      acceptance_criteria TEXT,
       status TEXT NOT NULL DEFAULT 'backlog',
       priority INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       agent_type TEXT,
+      branch TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      max_retries INTEGER NOT NULL DEFAULT 3,
       metadata TEXT,
+      routed_at INTEGER,
+      started_at INTEGER,
+      completed_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS task_labels (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS task_files (
@@ -86,6 +101,8 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_task_labels_task_id ON task_labels(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_labels_category ON task_labels(category);
     CREATE INDEX IF NOT EXISTS idx_task_files_task_id ON task_files(task_id);
     CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
   `);

@@ -78,7 +78,7 @@ export async function getTask(id: string): Promise<{ task: Task; files: TaskFile
   return request(`/tasks/${id}`);
 }
 
-export async function updateTask(id: string, updates: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'columnOrder'>>): Promise<Task> {
+export async function updateTask(id: string, updates: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'sortOrder'>>): Promise<Task> {
   const data = await request<{ task: Task }>(`/tasks/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
@@ -127,8 +127,19 @@ export async function publishTask(id: string, options?: { commitMessage?: string
   });
 }
 
-export async function runPipeline(taskId: string): Promise<unknown> {
-  return request(`/agents/pipeline/${taskId}`, { method: 'POST' });
+export async function runPipeline(taskId: string, autoReview = false): Promise<unknown> {
+  return request(`/agents/pipeline/${taskId}`, {
+    method: 'POST',
+    body: JSON.stringify({ autoReview }),
+  });
+}
+
+export async function acceptTask(taskId: string): Promise<unknown> {
+  return request(`/tasks/${taskId}/accept`, { method: 'POST' });
+}
+
+export async function declineTask(taskId: string): Promise<unknown> {
+  return request(`/tasks/${taskId}/decline`, { method: 'POST' });
 }
 
 // ── Task Files ──────────────────────
