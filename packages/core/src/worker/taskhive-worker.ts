@@ -147,12 +147,20 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
    * Queue a planning job for a task.
    * Per docs Flow 2: Run Planning
    */
-  async queuePlanning(taskId: string): Promise<schema.Job> {
+  async queuePlanning(taskId: string, settings?: { reviewMode?: "auto" | "human"; approvalMode?: "auto" | "manual" }): Promise<schema.Job> {
     // Validate task is in backlog
     const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
     if (!task) throw new Error(`Task not found: ${taskId}`);
     if (task.status !== "backlog") {
       throw new Error(`Task must be in backlog to run planning. Current status: ${task.status}`);
+    }
+
+    // Store review/approval settings on the task
+    if (settings) {
+      await this.db.update(schema.tasks).set({
+        reviewMode: settings.reviewMode ?? "auto",
+        approvalMode: settings.approvalMode ?? "auto",
+      }).where(eq(schema.tasks.id, taskId));
     }
 
     // Get project
@@ -182,21 +190,51 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
     });
 
     log.jobQueued("planning", taskId, job.id);
-    log.info("PLANNING", `Task "${task.title}" | Labels: [${labelStrings.join(", ") || "none"}]`);
+    log.info("PLANNING", `Task "${task.title}" | Labels: [${labelStrings.join(", ") || "none"}] | review=${settings?.reviewMode ?? "auto"} approval=${settings?.approvalMode ?? "auto"}`);
     this.emit("planning:queued", taskId);
     return job;
   }
 
   /**
+   * Queue batch planning for multiple tasks.
+   * All tasks share the same review/approval settings.
+   */
+  async queueBatchPlanning(
+    taskIds: string[],
+    settings: { reviewMode: "auto" | "human"; approvalMode: "auto" | "manual" },
+  ): Promise<{ queued: string[]; skipped: { taskId: string; reason: string }[] }> {
+    const queued: string[] = [];
+    const skipped: { taskId: string; reason: string }[] = [];
+
+    for (const taskId of taskIds) {
+      try {
+        await this.queuePlanning(taskId, settings);
+        queued.push(taskId);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        skipped.push({ taskId, reason });
+        log.warn("BATCH", `Skipped task ${taskId}: ${reason}`);
+      }
+    }
+
+    log.info("BATCH", `Batch planning: ${queued.length} queued, ${skipped.length} skipped`);
+    return { queued, skipped };
+  }
+
+  /**
    * Approve a plan and queue execution.
-   * Per docs Flow 3: Approve Plan
+   * Accepts tasks in 'ready' (backward compat) or 'needs_human' with reason 'plan_review'.
    */
   async approvePlan(taskId: string): Promise<schema.Job> {
-    // Validate task is in ready
     const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
     if (!task) throw new Error(`Task not found: ${taskId}`);
-    if (task.status !== "ready") {
-      throw new Error(`Task must be in 'ready' to approve plan. Current status: ${task.status}`);
+    const validStatuses = ["ready", "needs_human"];
+    if (!validStatuses.includes(task.status)) {
+      throw new Error(`Task must be in 'ready' or 'needs_human' to approve plan. Current status: ${task.status}`);
+    }
+    // If needs_human, verify it's for plan review
+    if (task.status === "needs_human" && task.needsHumanReason !== "plan_review") {
+      throw new Error(`Task is in needs_human for '${task.needsHumanReason}', not 'plan_review'. Use approveCodeReview() instead.`);
     }
 
     // Get the latest plan
@@ -358,7 +396,120 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
    * Decline review - move task back to needs_human
    */
   async declineReview(taskId: string): Promise<void> {
+    await this.db.update(schema.tasks).set({ needsHumanReason: "code_review" }).where(eq(schema.tasks.id, taskId));
     await this.updateTaskStatus(taskId, "needs_human");
+  }
+
+  /**
+   * Approve code review from needs_human (code_review) → move to QA
+   */
+  async approveCodeReview(taskId: string): Promise<void> {
+    const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (task.status !== "needs_human" || task.needsHumanReason !== "code_review") {
+      throw new Error(`Task must be in needs_human with reason 'code_review'. Current: ${task.status} / ${task.needsHumanReason}`);
+    }
+    await this.db.update(schema.tasks).set({ needsHumanReason: null }).where(eq(schema.tasks.id, taskId));
+    await this.updateTaskStatus(taskId, "qa");
+    await this.queueQA(taskId);
+  }
+
+  /**
+   * Reject code review from needs_human (code_review) → re-execute
+   */
+  async rejectCodeReview(taskId: string, feedback?: string): Promise<schema.Job> {
+    const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (task.status !== "needs_human" || task.needsHumanReason !== "code_review") {
+      throw new Error(`Task must be in needs_human with reason 'code_review'. Current: ${task.status} / ${task.needsHumanReason}`);
+    }
+
+    // Store feedback in metadata if provided
+    if (feedback) {
+      const meta = (task.metadata as Record<string, unknown>) ?? {};
+      meta.reviewFeedback = feedback;
+      await this.db.update(schema.tasks).set({ metadata: meta }).where(eq(schema.tasks.id, taskId));
+    }
+
+    await this.db.update(schema.tasks).set({ needsHumanReason: null }).where(eq(schema.tasks.id, taskId));
+
+    // Re-queue execution
+    const [project] = await this.db.select().from(schema.projects).where(eq(schema.projects.id, task.projectId));
+    if (!project) throw new Error(`Project not found: ${task.projectId}`);
+
+    const [plan] = await this.db
+      .select()
+      .from(schema.taskPlans)
+      .where(eq(schema.taskPlans.taskId, taskId))
+      .orderBy(schema.taskPlans.createdAt)
+      .limit(1);
+
+    const planData = plan?.planJson as PlanningResult | null;
+    const agentName = plan?.recommendedAgent || planData?.recommended_agent || "coder";
+    const run = await this.createRun(taskId, "execution", agentName);
+
+    await this.updateTaskStatus(taskId, "in_progress");
+
+    const job = await this.queue.addJob("execution", taskId, {
+      projectId: project.id,
+      projectPath: project.rootPath,
+      projectName: project.name,
+      defaultBranch: project.defaultBranch || "main",
+      runId: run.id,
+      planId: plan?.id,
+      agentName,
+      title: task.title,
+      description: task.description,
+      acceptanceCriteria: task.acceptanceCriteria,
+      plan: planData,
+      feedback,
+    });
+
+    this.emit("execution:queued", taskId);
+    return job;
+  }
+
+  /**
+   * Approve from needs_human — dispatches based on reason
+   */
+  async approveHuman(taskId: string): Promise<void> {
+    const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (task.status !== "needs_human") {
+      throw new Error(`Task must be in needs_human. Current: ${task.status}`);
+    }
+
+    if (task.needsHumanReason === "plan_review" || task.needsHumanReason === "high_risk") {
+      await this.db.update(schema.tasks).set({ needsHumanReason: null }).where(eq(schema.tasks.id, taskId));
+      // Move to ready so approvePlan can pick it up
+      await this.updateTaskStatus(taskId, "ready");
+      await this.approvePlan(taskId);
+    } else if (task.needsHumanReason === "code_review") {
+      await this.approveCodeReview(taskId);
+    } else {
+      throw new Error(`Unknown needs_human reason: ${task.needsHumanReason}`);
+    }
+  }
+
+  /**
+   * Reject from needs_human — dispatches based on reason
+   */
+  async rejectHuman(taskId: string, feedback?: string): Promise<void> {
+    const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    if (task.status !== "needs_human") {
+      throw new Error(`Task must be in needs_human. Current: ${task.status}`);
+    }
+
+    if (task.needsHumanReason === "plan_review" || task.needsHumanReason === "high_risk") {
+      // Reject plan → back to backlog
+      await this.db.update(schema.tasks).set({ needsHumanReason: null }).where(eq(schema.tasks.id, taskId));
+      await this.updateTaskStatus(taskId, "backlog");
+    } else if (task.needsHumanReason === "code_review") {
+      await this.rejectCodeReview(taskId, feedback);
+    } else {
+      throw new Error(`Unknown needs_human reason: ${task.needsHumanReason}`);
+    }
   }
 
   /**
@@ -398,6 +549,49 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
    */
   async getQueueStats() {
     return this.queue.getStats();
+  }
+
+  /**
+   * Get pipeline defaults from config table
+   */
+  async getPipelineDefaults(): Promise<{ reviewMode: string; approvalMode: string }> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(schema.config)
+        .where(eq(schema.config.key, "pipeline_defaults"));
+
+      if (row?.value) {
+        const val = row.value as { reviewMode?: string; approvalMode?: string };
+        return {
+          reviewMode: val.reviewMode ?? "auto",
+          approvalMode: val.approvalMode ?? "auto",
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return { reviewMode: "auto", approvalMode: "auto" };
+  }
+
+  /**
+   * Save pipeline defaults to config table
+   */
+  async savePipelineDefaults(defaults: { reviewMode?: string; approvalMode?: string }): Promise<void> {
+    const existing = await this.getPipelineDefaults();
+    const merged = { ...existing, ...defaults };
+
+    await this.db
+      .insert(schema.config)
+      .values({
+        key: "pipeline_defaults",
+        value: merged,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: schema.config.key,
+        set: { value: merged, updatedAt: new Date() },
+      });
   }
 
   // ===== Job Processors =====
@@ -509,24 +703,52 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       // Store planning JSON as artifact
       await this.collector.storePlanningResult(taskId, runId, JSON.stringify(planData, null, 2));
 
-      // Determine next column per docs section 13
-      if (planData.needs_human) {
-        log.planningNeedsHuman(taskId, "Plan flagged needs_human=true");
+      // Read the task's approval/review settings
+      const [freshTask] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+      const approvalMode = freshTask?.approvalMode ?? "auto";
+
+      // Store recommended agent
+      await this.db.update(schema.tasks).set({
+        agentType: planData.recommended_agent as schema.AgentType,
+      }).where(eq(schema.tasks.id, taskId));
+
+      // Determine next column: risk rules always override settings
+      const isHighRisk = planData.needs_human || this.requiresHumanApproval(planData, labels);
+
+      if (isHighRisk) {
+        // High risk or AI flagged needs_human → always stop for human review
+        const reason = planData.needs_human ? "Plan flagged needs_human=true" : `High risk detected (risk=${planData.risk_level}, labels=[${labels.join(",")}])`;
+        log.planningNeedsHuman(taskId, reason);
+        await this.db.update(schema.tasks).set({ needsHumanReason: "plan_review" }).where(eq(schema.tasks.id, taskId));
+        await this.updateTaskStatus(taskId, "needs_human");
+        this.emit("task:moved", taskId, "planning", "needs_human");
+      } else if (approvalMode === "manual") {
+        // Manual approval → stop for human to approve plan
+        log.info("PLANNING", `Manual approval mode — moving to needs_human (plan_review)`);
+        await this.db.update(schema.tasks).set({ needsHumanReason: "plan_review" }).where(eq(schema.tasks.id, taskId));
         await this.updateTaskStatus(taskId, "needs_human");
         this.emit("task:moved", taskId, "planning", "needs_human");
       } else {
-        // Check risk rules per docs section 19
-        if (this.requiresHumanApproval(planData, labels)) {
-          log.planningNeedsHuman(taskId, `High risk detected (risk=${planData.risk_level}, labels=[${labels.join(",")}])`);
-          await this.updateTaskStatus(taskId, "needs_human");
-          this.emit("task:moved", taskId, "planning", "needs_human");
-        } else {
-          await this.updateTaskStatus(taskId, "ready");
-          await this.db.update(schema.tasks).set({
-            agentType: planData.recommended_agent as schema.AgentType,
-          }).where(eq(schema.tasks.id, taskId));
-          this.emit("task:moved", taskId, "planning", "ready");
-          log.planningComplete(taskId, "ready");
+        // Auto approval → directly approve and queue execution
+        log.info("PLANNING", `Auto approval mode — auto-approving plan and queueing execution`);
+        log.planningComplete(taskId, "in_progress");
+        // Auto-approve the plan inline (avoid status validation issues)
+        const [plan] = await this.db
+          .select()
+          .from(schema.taskPlans)
+          .where(eq(schema.taskPlans.taskId, taskId))
+          .orderBy(schema.taskPlans.createdAt)
+          .limit(1);
+        if (plan) {
+          await this.db.update(schema.taskPlans).set({ approved: true, approvedAt: new Date() }).where(eq(schema.taskPlans.id, plan.id));
+        }
+        // Move to ready temporarily so approvePlan() can pick it up
+        await this.updateTaskStatus(taskId, "ready");
+        try {
+          await this.approvePlan(taskId);
+        } catch (approveErr) {
+          log.error("PLANNING", `Auto-approve failed: ${approveErr instanceof Error ? approveErr.message : String(approveErr)}`);
+          await this.updateTaskStatus(taskId, "failed");
         }
       }
 
@@ -654,9 +876,27 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         return { success: false, error: errorMsg };
       }
 
-      // 6. Move to Review
-      await this.updateTaskStatus(taskId, "in_review");
-      this.emit("task:moved", taskId, "in_progress", "in_review");
+      // 6. Route based on review mode
+      const [execTask] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+      const reviewMode = execTask?.reviewMode ?? "auto";
+
+      if (reviewMode === "human") {
+        // Human review → stop at needs_human with code_review reason
+        log.info("EXECUTION", `Human review mode — moving to needs_human (code_review)`);
+        await this.db.update(schema.tasks).set({ needsHumanReason: "code_review" }).where(eq(schema.tasks.id, taskId));
+        await this.updateTaskStatus(taskId, "needs_human");
+        this.emit("task:moved", taskId, "in_progress", "needs_human");
+      } else {
+        // Auto review → queue AI review
+        await this.updateTaskStatus(taskId, "in_review");
+        this.emit("task:moved", taskId, "in_progress", "in_review");
+        // Auto-queue the review job
+        try {
+          await this.queueReview(taskId);
+        } catch (reviewErr) {
+          log.warn("EXECUTION", `Auto-queue review failed: ${reviewErr instanceof Error ? reviewErr.message : String(reviewErr)}`);
+        }
+      }
       this.emit("execution:completed", taskId);
       log.executionComplete(taskId);
 
@@ -736,6 +976,14 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       await this.collector.storeReviewVerdict(taskId, runId, result.stdout);
 
       log.reviewComplete(taskId, result.stdout.length);
+
+      // Auto-queue QA after review (auto review mode means full auto pipeline)
+      try {
+        await this.acceptReviewAndQA(taskId);
+      } catch (qaErr) {
+        log.warn("REVIEW", `Auto-queue QA failed: ${qaErr instanceof Error ? qaErr.message : String(qaErr)}`);
+      }
+
       this.emit("review:completed", taskId, result.stdout);
       return { success: true, data: { verdict: result.stdout } };
 

@@ -228,6 +228,91 @@ export function createPipelineRoutes(worker: TaskHiveWorker) {
     }
   });
 
+  // ── Batch Start ──────────────────────
+  // POST /api/pipeline/batch-start
+  app.post("/batch-start", async (c) => {
+    try {
+      const body = await c.req.json<{
+        taskIds: string[];
+        settings: { reviewMode: "auto" | "human"; approvalMode: "auto" | "manual" };
+      }>();
+
+      if (!body.taskIds || !Array.isArray(body.taskIds) || body.taskIds.length === 0) {
+        return c.json({ success: false, error: "taskIds must be a non-empty array" }, 400);
+      }
+
+      const result = await worker.queueBatchPlanning(body.taskIds, body.settings ?? { reviewMode: "auto", approvalMode: "auto" });
+      return c.json({
+        success: true,
+        queued: result.queued,
+        skipped: result.skipped,
+        message: `${result.queued.length} tasks queued, ${result.skipped.length} skipped`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
+  // ── Approve Human ──────────────────────
+  // POST /api/pipeline/:taskId/approve-human
+  app.post("/:taskId/approve-human", async (c) => {
+    const taskId = c.req.param("taskId");
+
+    try {
+      await worker.approveHuman(taskId);
+      return c.json({
+        success: true,
+        message: "Human review approved",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
+  // ── Reject Human ──────────────────────
+  // POST /api/pipeline/:taskId/reject-human
+  app.post("/:taskId/reject-human", async (c) => {
+    const taskId = c.req.param("taskId");
+
+    try {
+      const body = await c.req.json<{ feedback?: string }>().catch(() => ({} as { feedback?: string }));
+      await worker.rejectHuman(taskId, body.feedback);
+      return c.json({
+        success: true,
+        message: "Human review rejected",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
+  // ── Pipeline Defaults ──────────────────────
+  // GET /api/pipeline/defaults
+  app.get("/defaults", async (c) => {
+    try {
+      const defaults = await worker.getPipelineDefaults();
+      return c.json({ defaults });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // PUT /api/pipeline/defaults
+  app.put("/defaults", async (c) => {
+    try {
+      const body = await c.req.json<{ reviewMode?: string; approvalMode?: string }>();
+      await worker.savePipelineDefaults(body);
+      return c.json({ success: true, message: "Pipeline defaults saved" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
   // ── Queue Stats ──────────────────────
   // GET /api/pipeline/queue/stats
   app.get("/queue/stats", async (c) => {

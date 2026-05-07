@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import type { Project, Task, TaskFile, AgentRun, TaskStatus } from '../types/index.js';
+import type { Project, Task, TaskFile, AgentRun, TaskStatus, BatchRunSettings } from '../types/index.js';
 import * as api from '../api/client.js';
 
 // ── Persistence ──────────────────────
@@ -31,6 +31,10 @@ export const selectedTask = writable<Task | null>(null);
 export const selectedTaskFiles = writable<TaskFile[]>([]);
 export const selectedTaskRuns = writable<AgentRun[]>([]);
 export const isLoading = writable(false);
+
+// ── Backlog Selection ──────────────────────
+
+export const selectedBacklogTasks = writable<Set<string>>(new Set());
 
 // ── Derived Stores (per column) ──────────────────────
 
@@ -183,4 +187,42 @@ export async function acceptReview(taskId: string): Promise<void> {
 
 export async function declineReview(taskId: string): Promise<void> {
   await api.declineTask(taskId);
+}
+
+// ── Backlog Selection Actions ──────────────────────
+
+export function toggleBacklogSelection(taskId: string): void {
+  selectedBacklogTasks.update((set) => {
+    const next = new Set(set);
+    if (next.has(taskId)) {
+      next.delete(taskId);
+    } else {
+      next.add(taskId);
+    }
+    return next;
+  });
+}
+
+export function selectAllBacklog(): void {
+  const tasks = get(allTasks);
+  const backlog = tasks.filter((t) => t.status === 'backlog' && !t.parentId);
+  selectedBacklogTasks.set(new Set(backlog.map((t) => t.id)));
+}
+
+export function clearBacklogSelection(): void {
+  selectedBacklogTasks.set(new Set());
+}
+
+export async function batchStart(settings: BatchRunSettings): Promise<{ queued: string[]; skipped: { taskId: string; reason: string }[] }> {
+  const taskIds = Array.from(get(selectedBacklogTasks));
+  if (taskIds.length === 0) throw new Error('No tasks selected');
+
+  const result = await api.batchStartTasks(taskIds, settings);
+  clearBacklogSelection();
+
+  // Refresh tasks to reflect new statuses
+  const project = get(currentProject);
+  if (project) await loadTasks(project.id);
+
+  return result;
 }

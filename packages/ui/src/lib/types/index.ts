@@ -43,6 +43,15 @@ export interface TaskLabel {
   createdAt: string;
 }
 
+export type ReviewMode = 'auto' | 'human';
+export type ApprovalMode = 'auto' | 'manual';
+export type NeedsHumanReason = 'plan_review' | 'code_review' | 'high_risk';
+
+export interface BatchRunSettings {
+  reviewMode: ReviewMode;
+  approvalMode: ApprovalMode;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -56,6 +65,9 @@ export interface Task {
   agentType?: AgentType | null;
   branch?: string | null;
   retryCount?: number;
+  reviewMode?: ReviewMode | null;
+  approvalMode?: ApprovalMode | null;
+  needsHumanReason?: NeedsHumanReason | null;
   subtasks?: Task[];
   labels?: TaskLabel[];
   createdAt: string;
@@ -115,9 +127,9 @@ export interface ColumnConfig {
 
 export const COLUMN_CONFIG: ColumnConfig[] = [
   { id: 'backlog', title: 'Backlog', dotColor: 'bg-muted-foreground', textColor: 'text-muted-foreground', icon: 'inventory_2' },
-  { id: 'ready', title: 'Ready For Agent', dotColor: 'bg-primary', textColor: 'text-foreground', icon: 'bolt' },
+  { id: 'planning', title: 'Planning', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'psychology', highlight: true },
   { id: 'in_progress', title: 'In Progress', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'sync', highlight: true },
-  { id: 'needs_human', title: 'Needs Human', dotColor: 'bg-destructive', textColor: 'text-destructive', icon: 'warning' },
+  { id: 'needs_human', title: 'Need Human', dotColor: 'bg-destructive', textColor: 'text-destructive', icon: 'front_hand' },
   { id: 'in_review', title: 'Review', dotColor: 'bg-chart-1', textColor: 'text-foreground', icon: 'rate_review' },
   { id: 'qa', title: 'QA', dotColor: 'bg-chart-2', textColor: 'text-foreground', icon: 'bug_report' },
   { id: 'done', title: 'Done', dotColor: 'bg-chart-1', textColor: 'text-chart-1', icon: 'check_circle' },

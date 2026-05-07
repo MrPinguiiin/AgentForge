@@ -10,6 +10,10 @@
     tasks,
     onTaskClick,
     onDrop,
+    selectedTaskIds,
+    onTaskSelect,
+    onSelectAll,
+    onStartSelected,
   }: {
     status: TaskStatus;
     title: string;
@@ -17,12 +21,17 @@
     tasks: Task[];
     onTaskClick?: (task: Task) => void;
     onDrop?: (status: TaskStatus, items: Task[]) => void;
+    selectedTaskIds?: Set<string>;
+    onTaskSelect?: (task: Task) => void;
+    onSelectAll?: () => void;
+    onStartSelected?: () => void;
   } = $props();
 
   // Find column config for styling
   import { COLUMN_CONFIG } from '../../types/index.js';
   const colConfig = COLUMN_CONFIG.find(c => c.id === status);
   const isHighlight = colConfig?.highlight ?? false;
+  const isBacklog = status === 'backlog';
 
   let items = $state<Task[]>([]);
 
@@ -38,6 +47,10 @@
     items = e.detail.items;
     onDrop?.(status, items);
   }
+
+  let selectedCount = $derived(
+    isBacklog && selectedTaskIds ? items.filter(t => selectedTaskIds.has(t.id)).length : 0
+  );
 </script>
 
 <div class="flex flex-col w-[320px] shrink-0 max-h-full {isHighlight ? 'bg-primary/5 rounded-xl p-2 border border-primary/20' : ''}">
@@ -50,10 +63,34 @@
         {tasks.length}
       </span>
     </div>
-    <button class="text-muted-foreground hover:text-foreground transition-colors">
-      <span class="material-symbols-outlined text-[18px]">more_horiz</span>
-    </button>
+    <div class="flex items-center gap-1">
+      {#if isBacklog && tasks.length > 0}
+        <button
+          class="text-xs text-muted-foreground hover:text-foreground transition-colors px-1"
+          onclick={() => onSelectAll?.()}
+          title="Select all"
+        >
+          <span class="material-symbols-outlined text-[16px]">select_all</span>
+        </button>
+      {/if}
+      <button class="text-muted-foreground hover:text-foreground transition-colors">
+        <span class="material-symbols-outlined text-[18px]">more_horiz</span>
+      </button>
+    </div>
   </div>
+
+  <!-- Batch Start Button (Backlog only) -->
+  {#if isBacklog && selectedCount > 0}
+    <div class="mb-3 px-1">
+      <button
+        class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+        onclick={() => onStartSelected?.()}
+      >
+        <span class="material-symbols-outlined text-[16px]">rocket_launch</span>
+        Start {selectedCount} {selectedCount === 1 ? 'Task' : 'Tasks'}
+      </button>
+    </div>
+  {/if}
 
   <!-- Drop Zone -->
   <div
@@ -68,7 +105,14 @@
   >
     {#each items as task (task.id)}
       <div>
-        <TaskCard {task} {status} onclick={onTaskClick} />
+        <TaskCard
+          {task}
+          {status}
+          onclick={onTaskClick}
+          selectable={isBacklog}
+          selected={isBacklog && selectedTaskIds ? selectedTaskIds.has(task.id) : false}
+          onselect={onTaskSelect}
+        />
       </div>
     {/each}
 

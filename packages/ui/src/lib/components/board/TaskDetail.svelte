@@ -15,6 +15,7 @@
   } from '../../stores/tasks.js';
   import { wsStore } from '../../stores/ws.svelte.js';
   import DiffViewer from '../editor/DiffViewer.svelte';
+  import FileTreeSidebar from './FileTreeSidebar.svelte';
   import * as api from '../../api/client.js';
 
   let task = $derived($selectedTask);
@@ -34,6 +35,11 @@
   // Live streaming output
   let streamOutput = $state('');
   let streamEl: HTMLPreElement | undefined = $state();
+
+  // Code review state
+  let activeReviewFile = $state('');
+  let rejectFeedback = $state('');
+  let showRejectInput = $state(false);
 
   let isOpen = $derived(!!task);
   let activeTab = $state('overview');
@@ -127,8 +133,9 @@
   // Pipeline stages
   const PIPELINE_STAGES: { id: string; label: string; icon: string }[] = [
     { id: 'backlog', label: 'Backlog', icon: 'inventory_2' },
-    { id: 'ready', label: 'Ready', icon: 'bolt' },
+    { id: 'planning', label: 'Planning', icon: 'psychology' },
     { id: 'in_progress', label: 'In Progress', icon: 'sync' },
+    { id: 'needs_human', label: 'Need Human', icon: 'front_hand' },
     { id: 'in_review', label: 'Review', icon: 'rate_review' },
     { id: 'qa', label: 'QA', icon: 'bug_report' },
     { id: 'done', label: 'Done', icon: 'check_circle' },
@@ -140,7 +147,7 @@
     planning: { label: 'Planning', variant: 'default', icon: 'psychology' },
     coding: { label: 'Coding', variant: 'default', icon: 'code' },
     in_progress: { label: 'In Progress', variant: 'default', icon: 'sync' },
-    needs_human: { label: 'Needs Human', variant: 'destructive', icon: 'warning' },
+    needs_human: { label: 'Need Human', variant: 'destructive', icon: 'front_hand' },
     in_review: { label: 'Review', variant: 'outline', icon: 'rate_review' },
     qa: { label: 'QA', variant: 'outline', icon: 'bug_report' },
     done: { label: 'Done', variant: 'secondary', icon: 'check_circle' },
@@ -149,8 +156,8 @@
   };
 
   function getStageIndex(status: string): number {
-    if (status === 'planning' || status === 'coding') return 2;
-    if (status === 'needs_human') return 2;
+    if (status === 'coding') return PIPELINE_STAGES.findIndex(s => s.id === 'in_progress');
+    if (status === 'ready') return PIPELINE_STAGES.findIndex(s => s.id === 'planning');
     return PIPELINE_STAGES.findIndex(s => s.id === status);
   }
 
@@ -170,12 +177,38 @@
   }
 
   function getProgressPercent(status: string): number {
-    const idx = PIPELINE_STAGES.findIndex(s => s.id === status);
-    if (status === 'planning' || status === 'coding') return 40;
-    if (status === 'needs_human') return 40;
     if (status === 'failed' || status === 'cancelled') return 0;
+    if (status === 'coding') return getProgressPercent('in_progress');
+    if (status === 'ready') return getProgressPercent('planning');
+    const idx = PIPELINE_STAGES.findIndex(s => s.id === status);
     if (idx < 0) return 0;
     return Math.round((idx / (PIPELINE_STAGES.length - 1)) * 100);
+  }
+
+  /**
+   * Extract the diff for a single file from a full git diff.
+   */
+  function extractFileDiff(fullDiff: string, filePath: string): string {
+    if (!fullDiff || !filePath) return fullDiff;
+
+    const lines = fullDiff.split('\n');
+    let capturing = false;
+    const result: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('diff --git')) {
+        if (capturing) break; // We've finished the target file
+        // Check if this is the file we want
+        if (line.includes(`b/${filePath}`)) {
+          capturing = true;
+        }
+      }
+      if (capturing) {
+        result.push(line);
+      }
+    }
+
+    return result.join('\n');
   }
 
   let meta = $derived(task ? STATUS_META[task.status] ?? STATUS_META['backlog'] : STATUS_META['backlog']);
@@ -229,6 +262,18 @@
         case 'accept-review':
           await api.acceptReviewPipeline(task.id);
           console.log(`%c[ACTION] %cReview accepted, QA queued`, 'color: #a78bfa; font-weight: bold', 'color: #34d399');
+          break;
+        case 'approve-human':
+          await api.approveHuman(task.id);
+          console.log(`%c[ACTION] %cHuman review approved`, 'color: #a78bfa; font-weight: bold', 'color: #34d399');
+          showRejectInput = false;
+          rejectFeedback = '';
+          break;
+        case 'reject-human':
+          await api.rejectHuman(task.id, rejectFeedback || undefined);
+          console.log(`%c[ACTION] %cHuman review rejected`, 'color: #a78bfa; font-weight: bold', 'color: #f87171');
+          showRejectInput = false;
+          rejectFeedback = '';
           break;
         case 'decline-review':
           await api.declineReviewPipeline(task.id);
@@ -386,6 +431,7 @@
                   {/if}
                 </Button>
               {:else if task.status === 'ready'}
+                <!-- Legacy: redirect to approve flow -->
                 <div class="p-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
                   <p class="text-sm font-medium text-foreground mb-1">Plan ready for review</p>
                   <p class="text-xs text-muted-foreground">Check the Planning tab to review the implementation plan before approving.</p>
@@ -423,17 +469,154 @@
                   <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
                 {/if}
               {:else if task.status === 'needs_human'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20">
-                  <span class="material-symbols-outlined text-destructive text-[20px]">warning</span>
-                  <div>
-                    <p class="text-sm font-medium text-foreground">Human intervention required</p>
-                    <p class="text-xs text-muted-foreground">The task requires clarification or has high risk</p>
+                <!-- Need Human: Plan Review Mode -->
+                {#if task.needsHumanReason === 'plan_review' || task.needsHumanReason === 'high_risk'}
+                  <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-500/5 border border-amber-500/20 mb-3">
+                    <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[20px]">rate_review</span>
+                    <div>
+                      <p class="text-sm font-medium text-foreground">Plan Review Required</p>
+                      <p class="text-xs text-muted-foreground">
+                        {task.needsHumanReason === 'high_risk'
+                          ? 'This task was flagged as high risk. Please review the plan carefully.'
+                          : 'Review the implementation plan before execution starts.'}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <Button variant="outline" class="w-full" onclick={() => handleAction('retry-planning')}>
-                  <span class="material-symbols-outlined text-[16px] mr-1">refresh</span>
-                  Retry Planning
-                </Button>
+
+                  <!-- Plan summary preview -->
+                  {#if taskPlan}
+                    <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Plan Summary</p>
+                      <p class="text-xs text-foreground">{taskPlan.planJson?.summary ?? 'No summary'}</p>
+                      {#if taskPlan.riskLevel}
+                        <div class="mt-2 flex items-center gap-2">
+                          <Badge variant={taskPlan.riskLevel === 'high' ? 'destructive' : taskPlan.riskLevel === 'medium' ? 'outline' : 'secondary'}>
+                            Risk: {taskPlan.riskLevel}
+                          </Badge>
+                          {#if taskPlan.recommendedAgent}
+                            <Badge variant="secondary">{taskPlan.recommendedAgent}</Badge>
+                          {/if}
+                        </div>
+                      {/if}
+                    </div>
+                    <p class="text-[10px] text-muted-foreground mb-2">See the Planning tab for full details.</p>
+                  {/if}
+
+                  <div class="flex gap-2">
+                    <Button class="flex-1" disabled={actionLoading === 'approve-human'} onclick={() => handleAction('approve-human')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">check</span>
+                      Approve Plan
+                    </Button>
+                    <Button variant="destructive" class="flex-1" disabled={actionLoading === 'reject-human'} onclick={() => handleAction('reject-human')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">close</span>
+                      Reject
+                    </Button>
+                  </div>
+                  <Button variant="outline" class="w-full" onclick={() => handleAction('retry-planning')}>
+                    <span class="material-symbols-outlined text-[16px] mr-1">refresh</span>
+                    Re-plan
+                  </Button>
+
+                <!-- Need Human: Code Review Mode -->
+                {:else if task.needsHumanReason === 'code_review'}
+                  <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
+                    <span class="material-symbols-outlined text-primary text-[20px]">code</span>
+                    <div>
+                      <p class="text-sm font-medium text-foreground">Code Review Required</p>
+                      <p class="text-xs text-muted-foreground">Review the AI's code changes before proceeding to QA.</p>
+                    </div>
+                  </div>
+
+                  <!-- Code review with file tree + diff -->
+                  {#if gitDiff}
+                    <div class="flex gap-0 rounded-lg border border-border overflow-hidden mb-3" style="height: 400px;">
+                      <!-- File tree sidebar -->
+                      <div class="w-[220px] border-r border-border bg-muted/30 overflow-hidden flex-shrink-0">
+                        <FileTreeSidebar
+                          diff={gitDiff}
+                          activeFile={activeReviewFile}
+                          onFileSelect={(f) => activeReviewFile = f}
+                        />
+                      </div>
+                      <!-- Diff viewer -->
+                      <div class="flex-1 overflow-auto">
+                        {#if activeReviewFile}
+                          {@const fileDiff = extractFileDiff(gitDiff, activeReviewFile)}
+                          <DiffViewer diff={fileDiff} filePath={activeReviewFile} maxHeight="400px" />
+                        {:else}
+                          <DiffViewer diff={gitDiff} maxHeight="400px" />
+                        {/if}
+                      </div>
+                    </div>
+                  {:else}
+                    <!-- No git diff available (non-git project) -->
+                    {#if taskArtifacts.find(a => a.artifactType === 'final_summary')}
+                      <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                        <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">AI Summary</p>
+                        <pre class="text-xs text-foreground whitespace-pre-wrap">{taskArtifacts.find(a => a.artifactType === 'final_summary')?.content ?? ''}</pre>
+                      </div>
+                    {:else}
+                      <div class="flex flex-col items-center justify-center py-8 text-center mb-3">
+                        <span class="material-symbols-outlined text-[24px] text-muted-foreground mb-2">difference</span>
+                        <p class="text-xs text-muted-foreground">No diff available. Check the Diff tab for details.</p>
+                      </div>
+                    {/if}
+                  {/if}
+
+                  <!-- Review verdict from AI (if available) -->
+                  {#if reviewVerdict}
+                    <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">AI Review Verdict</p>
+                      <pre class="text-xs text-foreground whitespace-pre-wrap max-h-32 overflow-auto">{reviewVerdict}</pre>
+                    </div>
+                  {/if}
+
+                  <div class="flex gap-2">
+                    <Button class="flex-1" disabled={actionLoading === 'approve-human'} onclick={() => handleAction('approve-human')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">check</span>
+                      Approve Changes
+                    </Button>
+                    <Button variant="outline" class="flex-1" disabled={showRejectInput} onclick={() => showRejectInput = !showRejectInput}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">edit_note</span>
+                      Request Changes
+                    </Button>
+                  </div>
+
+                  {#if showRejectInput}
+                    <div class="mt-2 space-y-2">
+                      <textarea
+                        class="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        rows="3"
+                        placeholder="Describe what needs to change..."
+                        bind:value={rejectFeedback}
+                      ></textarea>
+                      <Button variant="destructive" class="w-full" disabled={actionLoading === 'reject-human'} onclick={() => handleAction('reject-human')}>
+                        <span class="material-symbols-outlined text-[16px] mr-1">refresh</span>
+                        Re-execute with Feedback
+                      </Button>
+                    </div>
+                  {/if}
+
+                <!-- Fallback for unknown reason -->
+                {:else}
+                  <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20">
+                    <span class="material-symbols-outlined text-destructive text-[20px]">front_hand</span>
+                    <div>
+                      <p class="text-sm font-medium text-foreground">Human intervention required</p>
+                      <p class="text-xs text-muted-foreground">The task requires your attention.</p>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <Button class="flex-1" disabled={actionLoading === 'approve-human'} onclick={() => handleAction('approve-human')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">check</span>
+                      Approve
+                    </Button>
+                    <Button variant="outline" class="flex-1" onclick={() => handleAction('retry-planning')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">refresh</span>
+                      Retry
+                    </Button>
+                  </div>
+                {/if}
               {:else if task.status === 'in_review'}
                 <div class="flex items-center gap-2">
                   <Button class="flex-1" variant="default" disabled={actionLoading === 'accept-review'} onclick={() => handleAction('accept-review')}>
@@ -618,10 +801,10 @@
               {/if}
 
               <!-- Approve/Re-plan buttons -->
-              {#if task.status === 'ready' && !taskPlan.approved}
+              {#if (task.status === 'ready' || (task.status === 'needs_human' && (task.needsHumanReason === 'plan_review' || task.needsHumanReason === 'high_risk'))) && !taskPlan.approved}
                 <Separator class="my-4" />
                 <div class="flex gap-2">
-                  <Button class="flex-1" disabled={actionLoading === 'approve-plan'} onclick={() => handleAction('approve-plan')}>
+                  <Button class="flex-1" disabled={actionLoading === 'approve-human'} onclick={() => handleAction('approve-human')}>
                     <span class="material-symbols-outlined text-[16px] mr-1">check</span>
                     Approve Plan
                   </Button>
@@ -725,8 +908,26 @@
                 </div>
               {/if}
 
-              <!-- Full diff -->
-              <DiffViewer diff={gitDiff} />
+              <!-- File tree + diff viewer layout -->
+              <div class="flex gap-0 rounded-lg border border-border overflow-hidden mb-4" style="height: 500px;">
+                <!-- File tree sidebar -->
+                <div class="w-[220px] border-r border-border bg-muted/30 overflow-hidden flex-shrink-0">
+                  <FileTreeSidebar
+                    diff={gitDiff}
+                    activeFile={activeReviewFile}
+                    onFileSelect={(f) => activeReviewFile = activeReviewFile === f ? '' : f}
+                  />
+                </div>
+                <!-- Diff viewer -->
+                <div class="flex-1 overflow-auto">
+                  {#if activeReviewFile}
+                    {@const fileDiff = extractFileDiff(gitDiff, activeReviewFile)}
+                    <DiffViewer diff={fileDiff} filePath={activeReviewFile} maxHeight="500px" />
+                  {:else}
+                    <DiffViewer diff={gitDiff} maxHeight="500px" />
+                  {/if}
+                </div>
+              </div>
 
               <!-- Review verdict -->
               {#if reviewVerdict}
@@ -752,7 +953,7 @@
                       <span class="text-xs font-mono text-muted-foreground truncate">{file.filePath}</span>
                     </div>
                     {#if file.diff}
-                      <DiffViewer diff={file.diff} />
+                      <DiffViewer diff={file.diff} filePath={file.filePath} />
                     {/if}
                   </div>
                 {/each}

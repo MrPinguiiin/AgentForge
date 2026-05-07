@@ -5,10 +5,16 @@
     task,
     status,
     onclick,
+    selectable = false,
+    selected = false,
+    onselect,
   }: {
     task: Task;
     status?: TaskStatus;
     onclick?: (task: Task) => void;
+    selectable?: boolean;
+    selected?: boolean;
+    onselect?: (task: Task) => void;
   } = $props();
 
   const isInProgress = $derived(status === 'in_progress' || status === 'planning' || status === 'coding');
@@ -54,8 +60,33 @@
      isReady ? 'border-border hover:border-primary/50' :
      isDone ? 'border-chart-1/20' :
      'border-border hover:border-muted-foreground/30'}"
-  onclick={() => onclick?.(task)}
+  onclick={(e: MouseEvent) => {
+    // If clicking the checkbox area, handle selection instead
+    if (selectable && (e.target as HTMLElement)?.closest('.select-checkbox')) {
+      e.stopPropagation();
+      onselect?.(task);
+      return;
+    }
+    onclick?.(task);
+  }}
 >
+  <!-- Selection checkbox -->
+  {#if selectable}
+    <div class="select-checkbox absolute top-3 left-3 z-10">
+      <button
+        class="w-5 h-5 rounded border-2 flex items-center justify-center transition-all
+          {selected
+            ? 'bg-primary border-primary text-primary-foreground'
+            : 'border-muted-foreground/40 hover:border-primary/60'}"
+        onclick={(e: MouseEvent) => { e.stopPropagation(); onselect?.(task); }}
+      >
+        {#if selected}
+          <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">check</span>
+        {/if}
+      </button>
+    </div>
+  {/if}
+
   <!-- Left accent -->
   {#if isReady}
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary/30 rounded-l-xl"></div>
@@ -75,7 +106,7 @@
   {/if}
 
   <!-- Card Header -->
-  <div class="flex justify-between items-start mb-2 {isReady || isNeedsHuman || isFailed || isDone ? 'pl-1' : ''}">
+  <div class="flex justify-between items-start mb-2 {selectable ? 'pl-7' : isReady || isNeedsHuman || isFailed || isDone ? 'pl-1' : ''}">
     <span class="text-xs text-muted-foreground font-mono tracking-tight">{task.id.slice(0, 8).toUpperCase()}</span>
     <div class="flex items-center gap-1">
       {#if isPlanning}

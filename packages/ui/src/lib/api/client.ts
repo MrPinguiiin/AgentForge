@@ -432,3 +432,40 @@ export async function getTaskArtifacts(taskId: string): Promise<{ artifacts: Tas
 export async function getQueueStats(): Promise<{ stats: Record<string, number> }> {
   return request<{ stats: Record<string, number> }>('/pipeline/queue/stats');
 }
+
+/** Batch start multiple tasks from backlog */
+export async function batchStartTasks(
+  taskIds: string[],
+  settings: { reviewMode: 'auto' | 'human'; approvalMode: 'auto' | 'manual' },
+): Promise<{ success: boolean; queued: string[]; skipped: { taskId: string; reason: string }[]; message: string }> {
+  return request('/pipeline/batch-start', {
+    method: 'POST',
+    body: JSON.stringify({ taskIds, settings }),
+  });
+}
+
+/** Approve a task in needs_human status */
+export async function approveHuman(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/approve-human`, { method: 'POST' });
+}
+
+/** Reject a task in needs_human status */
+export async function rejectHuman(taskId: string, feedback?: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/reject-human`, {
+    method: 'POST',
+    body: JSON.stringify({ feedback }),
+  });
+}
+
+/** Get pipeline defaults */
+export async function getPipelineDefaults(): Promise<{ defaults: { reviewMode: string; approvalMode: string } }> {
+  return request('/pipeline/defaults');
+}
+
+/** Save pipeline defaults */
+export async function savePipelineDefaults(defaults: { reviewMode?: string; approvalMode?: string }): Promise<void> {
+  await request('/pipeline/defaults', {
+    method: 'PUT',
+    body: JSON.stringify(defaults),
+  });
+}
