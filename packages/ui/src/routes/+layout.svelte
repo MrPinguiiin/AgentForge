@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { checkOpenCodeStatus, type OpenCodeStatus } from '$lib/api/client.js';
   import '../app.css';
 
   let { children }: { children: Snippet } = $props();
@@ -10,9 +11,20 @@
   ];
 
   let currentPath = $state('/');
+  let openCodeStatus = $state<OpenCodeStatus>({ installed: false, version: null, path: null });
+  let openCodeLoading = $state(true);
 
   $effect(() => {
     currentPath = window.location.pathname;
+  });
+
+  $effect(() => {
+    checkOpenCodeStatus().then((status) => {
+      openCodeStatus = status;
+      openCodeLoading = false;
+    }).catch(() => {
+      openCodeLoading = false;
+    });
   });
 </script>
 
@@ -61,7 +73,34 @@
     </nav>
 
     <!-- Footer -->
-    <div class="p-3 border-t border-border">
+    <div class="p-3 border-t border-border space-y-2">
+      <!-- OpenCode Status -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-[10px] text-text-muted">
+          {#if openCodeLoading}
+            <span class="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse"></span>
+            <span>Checking OpenCode...</span>
+          {:else if openCodeStatus.installed}
+            <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+            <span>OpenCode <span class="text-text">v{openCodeStatus.version}</span></span>
+          {:else}
+            <span class="w-1.5 h-1.5 rounded-full bg-text-muted"></span>
+            <span>OpenCode not installed</span>
+          {/if}
+        </div>
+        {#if !openCodeLoading && !openCodeStatus.installed}
+          <a
+            href="https://opencode.ai/docs/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-[10px] text-primary hover:text-primary-light transition-colors"
+          >
+            Install &rarr;
+          </a>
+        {/if}
+      </div>
+
+      <!-- Server Status -->
       <div class="flex items-center gap-2 text-[10px] text-text-muted">
         <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
         Server connected

@@ -252,6 +252,23 @@ export async function fetchProviderModels(
   return data.models;
 }
 
+// ── Tools / Status Checks ──────────────────────
+
+export interface OpenCodeStatus {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+}
+
+export async function checkOpenCodeStatus(): Promise<OpenCodeStatus> {
+  try {
+    return await request<OpenCodeStatus>('/tools/opencode-status');
+  } catch {
+    // If server is unreachable, assume not installed
+    return { installed: false, version: null, path: null };
+  }
+}
+
 // ── Directory Browser ──────────────────────
 
 export interface BrowseResult {
