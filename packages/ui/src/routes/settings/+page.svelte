@@ -8,7 +8,7 @@
     provider: string;
     model: string;
     temperature: number;
-    maxTokens: number;
+    maxOutputTokens: number;
   }
 
   interface ModelInfo {
@@ -24,6 +24,34 @@
     baseURL?: string;
     enabled: boolean;
   }
+
+  interface AgentMeta {
+    key: string;
+    label: string;
+    description: string;
+    category: 'core' | 'specialist' | 'quality';
+  }
+
+  const AGENT_REGISTRY: AgentMeta[] = [
+    // Core pipeline
+    { key: 'planner', label: 'Planner', description: 'Breaks tasks into subtasks', category: 'core' },
+    { key: 'coder', label: 'Coder', description: 'General code implementation', category: 'core' },
+    { key: 'reviewer', label: 'Reviewer', description: 'Reviews code changes', category: 'core' },
+    // Specialist agents
+    { key: 'frontend', label: 'Frontend', description: 'UI components & styling', category: 'specialist' },
+    { key: 'backend', label: 'Backend', description: 'APIs, services & database', category: 'specialist' },
+    { key: 'debugger', label: 'Debugger', description: 'Bug analysis & fixes', category: 'specialist' },
+    // Quality & research
+    { key: 'qa', label: 'QA', description: 'Test writing & coverage', category: 'quality' },
+    { key: 'docs', label: 'Docs', description: 'Documentation updates', category: 'quality' },
+    { key: 'explore', label: 'Explore', description: 'Codebase research (read-only)', category: 'quality' },
+  ];
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    core: 'Core Pipeline',
+    specialist: 'Specialist Agents',
+    quality: 'Quality & Research',
+  };
 
   let config = $state<{ agents: Record<string, AgentConfig>; providers?: Record<string, ProviderInfo> } | null>(null);
   let models = $state<Record<string, ModelInfo[]>>({});
@@ -206,7 +234,16 @@
   }
 
   const builtinProviders = ['openai', 'anthropic', 'openrouter'] as const;
-  const agentTypes = ['planner', 'coder', 'reviewer'] as const;
+
+  // Dynamically get agent types that exist in config
+  function getActiveAgents(): AgentMeta[] {
+    if (!config) return [];
+    return AGENT_REGISTRY.filter((a) => a.key in config!.agents);
+  }
+
+  function getAgentsByCategory(category: string): AgentMeta[] {
+    return getActiveAgents().filter((a) => a.category === category);
+  }
 
   // All available provider keys for agent dropdowns (built-in + custom)
   function getAllProviderKeys(): string[] {
@@ -394,79 +431,105 @@
 
     <!-- Agent Model Configuration -->
     {#if config}
-      <section class="space-y-4">
-        <h2 class="text-sm font-semibold text-text uppercase tracking-wider">Agent Models</h2>
-        <p class="text-xs text-text-muted">Configure which model each agent uses.</p>
+      <section class="space-y-6">
+        <div>
+          <h2 class="text-sm font-semibold text-text uppercase tracking-wider">Agent Models</h2>
+          <p class="text-xs text-text-muted mt-1">Configure which model each agent uses. Agents are routed automatically based on task labels.</p>
+        </div>
 
-        {#each agentTypes as agentType}
-          {@const agent = config.agents[agentType]}
-          {#if agent}
-            <div class="p-4 rounded-lg border border-border bg-surface-light">
-              <h3 class="text-sm font-medium text-text capitalize mb-3">{agentType} Agent</h3>
+        {#each ['core', 'specialist', 'quality'] as category}
+          {@const agents = getAgentsByCategory(category)}
+          {#if agents.length > 0}
+            <div class="space-y-3">
+              <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-2">
+                {#if category === 'core'}
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                {:else if category === 'specialist'}
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                {:else}
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                {/if}
+                {CATEGORY_LABELS[category]}
+              </h3>
 
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Provider</label>
-                  <select
-                    bind:value={agent.provider}
-                    class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
-                  >
-                    {#each getAllProviderKeys() as p}
-                      <option value={p}>{getProviderDisplayName(p)}</option>
-                    {/each}
-                  </select>
-                </div>
+              {#each agents as agentMeta}
+                {@const agent = config.agents[agentMeta.key]}
+                {#if agent}
+                  <div class="p-4 rounded-lg border border-border bg-surface-light">
+                    <div class="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 class="text-sm font-medium text-text">{agentMeta.label} Agent</h4>
+                        <p class="text-[10px] text-text-muted">{agentMeta.description}</p>
+                      </div>
+                      <Badge variant={category === 'core' ? 'primary' : category === 'specialist' ? 'info' : 'default'}>
+                        {agentMeta.key}
+                      </Badge>
+                    </div>
 
-                <div>
-                  <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Model</label>
-                  {#if models[agent.provider] && models[agent.provider].length > 0}
-                    <select
-                      bind:value={agent.model}
-                      class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
-                    >
-                      {#each models[agent.provider] as model}
-                        <option value={model.id}>{model.name}</option>
-                      {/each}
-                      <!-- Allow custom model ID if current value not in list -->
-                      {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
-                        <option value={agent.model}>{agent.model}</option>
-                      {/if}
-                    </select>
-                  {:else}
-                    <!-- Custom provider: free-text model input -->
-                    <input
-                      type="text"
-                      bind:value={agent.model}
-                      placeholder="Model ID (e.g. gpt-4o)"
-                      class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
-                    />
-                  {/if}
-                </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Provider</label>
+                        <select
+                          bind:value={agent.provider}
+                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                        >
+                          {#each getAllProviderKeys() as p}
+                            <option value={p}>{getProviderDisplayName(p)}</option>
+                          {/each}
+                        </select>
+                      </div>
 
-                <div>
-                  <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Temperature</label>
-                  <input
-                    type="number"
-                    bind:value={agent.temperature}
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
-                  />
-                </div>
+                      <div>
+                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Model</label>
+                        {#if models[agent.provider] && models[agent.provider].length > 0}
+                          <select
+                            bind:value={agent.model}
+                            class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                          >
+                            {#each models[agent.provider] as model}
+                              <option value={model.id}>{model.name}</option>
+                            {/each}
+                            {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
+                              <option value={agent.model}>{agent.model}</option>
+                            {/if}
+                          </select>
+                        {:else}
+                          <input
+                            type="text"
+                            bind:value={agent.model}
+                            placeholder="Model ID (e.g. gpt-4o)"
+                            class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+                          />
+                        {/if}
+                      </div>
 
-                <div>
-                  <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Max Tokens</label>
-                  <input
-                    type="number"
-                    bind:value={agent.maxTokens}
-                    min="100"
-                    max="128000"
-                    step="100"
-                    class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
-                  />
-                </div>
-              </div>
+                      <div>
+                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Temperature</label>
+                        <input
+                          type="number"
+                          bind:value={agent.temperature}
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                        />
+                      </div>
+
+                      <div>
+                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Max Tokens</label>
+                        <input
+                          type="number"
+                          bind:value={agent.maxOutputTokens}
+                          min="100"
+                          max="128000"
+                          step="100"
+                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                {/if}
+              {/each}
             </div>
           {/if}
         {/each}

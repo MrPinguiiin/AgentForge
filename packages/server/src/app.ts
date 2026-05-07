@@ -12,6 +12,7 @@ import { createConfigRoutes } from "./routes/config.js";
 import { createAgentRoutes } from "./routes/agents.js";
 import { createKanbanRoutes } from "./routes/kanban.js";
 import { createToolsRoutes } from "./routes/tools.js";
+import { createTerminalRoutes } from "./routes/terminal.js";
 import { createLandingRoutes } from "./routes/landing.js";
 import { errorHandler } from "./middleware/error.js";
 import { requestLogger } from "./middleware/logger.js";
@@ -35,6 +36,7 @@ export function createApp(orchestrator: Orchestrator, staticDir?: string) {
   app.route("/api/agents", createAgentRoutes(orchestrator));
   app.route("/api/kanban", createKanbanRoutes(orchestrator));
   app.route("/api/tools", createToolsRoutes());
+  app.route("/api/terminal", createTerminalRoutes(orchestrator));
 
   // ── Health Check ──────────────────────
   app.get("/api/health", (c) => {

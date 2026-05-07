@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import type { Orchestrator } from "@ai-coder/core";
 import { aiConfigSchema } from "@ai-coder/core";
+import { ConfigPersistence } from "../utils/config-persistence.js";
 
 export function createConfigRoutes(orchestrator: Orchestrator) {
   const app = new Hono();
+  const configPersistence = new ConfigPersistence();
 
   // Get current config (includes providers + agents)
   app.get("/", async (c) => {
@@ -12,11 +14,7 @@ export function createConfigRoutes(orchestrator: Orchestrator) {
 
     return c.json({
       config: {
-        agents: {
-          planner: registry.getAgentConfig("planner"),
-          coder: registry.getAgentConfig("coder"),
-          reviewer: registry.getAgentConfig("reviewer"),
-        },
+        agents: fullConfig.agents,
         providers: fullConfig.providers,
       },
     });
@@ -28,7 +26,11 @@ export function createConfigRoutes(orchestrator: Orchestrator) {
       const body = await c.req.json();
       const validated = aiConfigSchema.parse(body);
 
-      orchestrator.getProviderRegistry().updateConfig(validated);
+      const registry = orchestrator.getProviderRegistry();
+      registry.updateConfig(validated);
+
+      // Persist to disk
+      configPersistence.saveAIConfig(registry.getConfig());
 
       return c.json({ success: true });
     } catch (error) {
@@ -101,7 +103,8 @@ export function createConfigRoutes(orchestrator: Orchestrator) {
         return c.json({ error: "id, name, and baseURL are required" }, 400);
       }
 
-      orchestrator.getProviderRegistry().updateConfig({
+      const registry = orchestrator.getProviderRegistry();
+      registry.updateConfig({
         providers: {
           [id]: {
             type: "custom",
@@ -112,6 +115,9 @@ export function createConfigRoutes(orchestrator: Orchestrator) {
           },
         },
       });
+
+      // Persist to disk so it survives server restart
+      configPersistence.saveAIConfig(registry.getConfig());
 
       return c.json({ success: true });
     } catch (error) {
@@ -196,6 +202,10 @@ export function createConfigRoutes(orchestrator: Orchestrator) {
     }
 
     registry.removeProvider(id);
+
+    // Persist to disk so deletion survives server restart
+    configPersistence.saveAIConfig(registry.getConfig());
+
     return c.json({ success: true });
   });
 

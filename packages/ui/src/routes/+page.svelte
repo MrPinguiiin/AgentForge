@@ -7,6 +7,7 @@
     loadProjects,
     selectProject,
     loadTasks,
+    getPersistedProjectId,
   } from '$lib/stores/tasks.js';
   import { wsStore } from '$lib/stores/ws.svelte.js';
   import type { Project } from '$lib/types/index.js';
@@ -67,7 +68,16 @@
     loadProjects().then(() => {
       const projs = $projects;
       if (projs.length > 0) {
-        selectProject(projs[0]);
+        // Don't overwrite if already selected (e.g. navigating back from /terminal)
+        if ($currentProject) {
+          // Just reload tasks for the current project
+          loadTasks($currentProject.id);
+        } else {
+          // Try to restore from localStorage, fallback to first project
+          const savedId = getPersistedProjectId();
+          const saved = savedId ? projs.find((p) => p.id === savedId) : null;
+          selectProject(saved ?? projs[0]);
+        }
       } else {
         showSetup = true;
       }
@@ -262,11 +272,12 @@
   <!-- Board View -->
   <div class="flex-1 flex flex-col overflow-hidden">
     <!-- Top Bar -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-      <div class="flex items-center gap-3">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-border shrink-0 bg-surface-light">
+      <div class="flex items-center gap-4">
+        <!-- Project Selector -->
         {#if $projects.length > 1}
           <select
-            class="text-sm bg-surface-lighter border border-border rounded-lg px-2 py-1 text-text focus:outline-none focus:border-primary"
+            class="text-base font-semibold bg-surface-lighter border border-border rounded-lg px-3 py-1.5 text-text focus:outline-none focus:border-primary min-w-[160px]"
             value={$currentProject?.id ?? ''}
             onchange={handleProjectChange}
           >
@@ -275,17 +286,17 @@
             {/each}
           </select>
         {:else if $currentProject}
-          <h2 class="text-sm font-semibold text-text">{$currentProject.name}</h2>
+          <h2 class="text-base font-bold text-text">{$currentProject.name}</h2>
         {/if}
 
         {#if $currentProject?.framework}
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-lighter text-text-muted">
+          <span class="text-xs px-2 py-1 rounded-md bg-primary/10 text-primary font-medium">
             {$currentProject.framework}
           </span>
         {/if}
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-3">
         <Button variant="ghost" size="sm" onclick={() => (showSetup = true)}>
           + Project
         </Button>

@@ -149,13 +149,36 @@ function loadAIConfig(): AIConfig {
       const raw = fs.readFileSync(configPath, "utf-8");
       const parsed = JSON.parse(raw);
       if (parsed.ai) {
+        const fileAI = parsed.ai;
+
+        // Merge providers (preserves custom providers from disk)
+        const providers = {
+          ...DEFAULT_AI_CONFIG.providers,
+          ...(fileAI.providers || {}),
+        };
+
+        // Merge agents (handle both maxTokens and maxOutputTokens formats)
+        const agents = { ...DEFAULT_AI_CONFIG.agents };
+        if (fileAI.agents) {
+          for (const [key, agentRaw] of Object.entries(fileAI.agents)) {
+            const agent = agentRaw as Record<string, unknown>;
+            if (key in agents) {
+              (agents as any)[key] = {
+                ...(agents as any)[key],
+                ...agent,
+                // Normalize: support both maxTokens (old) and maxOutputTokens (new)
+                maxOutputTokens: agent.maxOutputTokens ?? agent.maxTokens ?? (agents as any)[key].maxOutputTokens,
+              };
+              // Remove old field if present
+              delete (agents as any)[key].maxTokens;
+            }
+          }
+        }
+
         return {
-          ...DEFAULT_AI_CONFIG,
-          ...parsed.ai,
-          providers: {
-            ...DEFAULT_AI_CONFIG.providers,
-            ...(parsed.ai.providers || {}),
-          },
+          defaultProvider: fileAI.defaultProvider || DEFAULT_AI_CONFIG.defaultProvider,
+          providers,
+          agents,
         };
       }
     } catch {

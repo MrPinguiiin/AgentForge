@@ -2,6 +2,26 @@ import { writable, derived, get } from 'svelte/store';
 import type { Project, Task, TaskFile, AgentRun, TaskStatus } from '../types/index.js';
 import * as api from '../api/client.js';
 
+// ── Persistence ──────────────────────
+
+const PROJECT_STORAGE_KEY = 'ai-coder:currentProjectId';
+
+function persistProjectId(id: string): void {
+  try {
+    localStorage.setItem(PROJECT_STORAGE_KEY, id);
+  } catch {
+    // localStorage might not be available
+  }
+}
+
+export function getPersistedProjectId(): string | null {
+  try {
+    return localStorage.getItem(PROJECT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 // ── Core Stores ──────────────────────
 
 export const currentProject = writable<Project | null>(null);
@@ -14,32 +34,38 @@ export const isLoading = writable(false);
 
 // ── Derived Stores (per column) ──────────────────────
 
-export const todoTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'todo').sort((a, b) => a.sortOrder - b.sortOrder)
-);
+function filterByStatus(status: TaskStatus) {
+  return derived(allTasks, ($tasks) =>
+    $tasks.filter((t) => t.status === status).sort((a, b) => a.sortOrder - b.sortOrder)
+  );
+}
 
-export const planningTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'planning').sort((a, b) => a.sortOrder - b.sortOrder)
-);
+export const backlogTasks = filterByStatus('backlog');
+export const todoTasks = filterByStatus('todo');
+export const readyTasks = filterByStatus('ready');
+export const planningTasks = filterByStatus('planning');
+export const codingTasks = filterByStatus('coding');
+export const inProgressTasks = filterByStatus('in_progress');
+export const needsHumanTasks = filterByStatus('needs_human');
+export const inReviewTasks = filterByStatus('in_review');
+export const qaTasks = filterByStatus('qa');
+export const doneTasks = filterByStatus('done');
+export const cancelledTasks = filterByStatus('cancelled');
+export const failedTasks = filterByStatus('failed');
 
-export const codingTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'coding').sort((a, b) => a.sortOrder - b.sortOrder)
-);
-
-export const inReviewTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'in_review').sort((a, b) => a.sortOrder - b.sortOrder)
-);
-
-export const doneTasks = derived(allTasks, ($tasks) =>
-  $tasks.filter((t) => t.status === 'done').sort((a, b) => a.sortOrder - b.sortOrder)
-);
-
-export const columnTasks: Record<TaskStatus, typeof todoTasks> = {
+export const columnTasks: Record<TaskStatus, ReturnType<typeof filterByStatus>> = {
+  backlog: backlogTasks,
   todo: todoTasks,
+  ready: readyTasks,
   planning: planningTasks,
   coding: codingTasks,
+  in_progress: inProgressTasks,
+  needs_human: needsHumanTasks,
   in_review: inReviewTasks,
+  qa: qaTasks,
   done: doneTasks,
+  cancelled: cancelledTasks,
+  failed: failedTasks,
 };
 
 // ── Actions ──────────────────────
@@ -56,6 +82,7 @@ export async function loadProjects(): Promise<void> {
 
 export async function selectProject(project: Project): Promise<void> {
   currentProject.set(project);
+  persistProjectId(project.id);
   await loadTasks(project.id);
 }
 

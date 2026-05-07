@@ -6,7 +6,16 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { AIConfig, AgentModelConfig, ProviderConfig } from "./models.js";
 import { DEFAULT_AI_CONFIG } from "./models.js";
 
-type AgentName = "planner" | "coder" | "reviewer";
+type AgentName =
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "frontend"
+  | "backend"
+  | "debugger"
+  | "qa"
+  | "docs"
+  | "explore";
 
 export class ProviderRegistry {
   private config: AIConfig;

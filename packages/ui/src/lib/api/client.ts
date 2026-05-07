@@ -269,6 +269,25 @@ export async function checkOpenCodeStatus(): Promise<OpenCodeStatus> {
   }
 }
 
+// ── Terminal ──────────────────────
+
+export interface TerminalExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export async function terminalExec(command: string, cwd?: string): Promise<TerminalExecResult> {
+  return request<TerminalExecResult>('/terminal/exec', {
+    method: 'POST',
+    body: JSON.stringify({ command, cwd }),
+  });
+}
+
+export async function terminalCwd(): Promise<{ cwd: string }> {
+  return request<{ cwd: string }>('/terminal/cwd');
+}
+
 // ── Directory Browser ──────────────────────
 
 export interface BrowseResult {

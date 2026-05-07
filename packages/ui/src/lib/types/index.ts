@@ -28,7 +28,7 @@ export type LabelCategory = 'type' | 'risk' | 'scope' | 'area' | 'priority';
 export interface Project {
   id: string;
   name: string;
-  path: string;
+  rootPath: string;
   framework?: string;
   language?: string;
   createdAt: string;
