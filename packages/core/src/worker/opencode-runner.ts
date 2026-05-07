@@ -235,7 +235,41 @@ export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
         } catch { /* best effort */ }
       };
 
-      // 2. Send prompt with timeout
+      // 2. Subscribe to SSE events for live streaming
+      let sseCleanup: (() => void) | null = null;
+      try {
+        const sseResult = await client.event.subscribe();
+        const reader = sseResult.stream;
+        let streamingDone = false;
+
+        // Process SSE events in background
+        (async () => {
+          try {
+            for await (const event of reader) {
+              if (streamingDone) break;
+              const evt = event as any;
+              // message.part.updated events contain streaming text chunks
+              if (evt?.type === "message.part.updated" && evt?.properties?.sessionID === sessionId) {
+                const part = evt?.properties?.part;
+                if (part?.type === "text" && part?.content) {
+                  this.emit("stdout", part.content);
+                }
+              }
+            }
+          } catch {
+            // SSE stream ended or errored — that's fine
+          }
+        })();
+
+        sseCleanup = () => {
+          streamingDone = true;
+        };
+      } catch {
+        // SSE subscription failed — continue without streaming
+        log.warn("RUNNER", "Could not subscribe to SSE events for streaming");
+      }
+
+      // 3. Send prompt with timeout
       const resolvedModel = model ?? this.pool.defaultModel;
       const modelConfig = resolvedModel ? this.parseModel(resolvedModel) : undefined;
 
@@ -257,6 +291,7 @@ export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
         });
 
         clearTimeout(timeoutId);
+        sseCleanup?.();
         this.activeAbort = null;
 
         // Extract text from response parts
@@ -269,8 +304,6 @@ export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
 
         const durationMs = Date.now() - startTime;
         log.info("RUNNER", `Session ${sessionId} completed (${durationMs}ms, ${textContent.length} chars)`);
-
-        this.emit("stdout", textContent);
 
         const runResult: OpenCodeRunResult = {
           exitCode: 0,
@@ -285,6 +318,7 @@ export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
 
       } catch (err) {
         clearTimeout(timeoutId);
+        sseCleanup?.();
         this.activeAbort = null;
 
         if (this.aborted || (err instanceof Error && err.name === "AbortError")) {

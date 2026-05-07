@@ -114,6 +114,12 @@ export async function startServer(
   worker.on("execution:failed", (taskId, error) => {
     orchestrator.emit("agent:error", taskId, "coder", new Error(error));
   });
+  worker.on("planning:streaming", (taskId, chunk) => {
+    orchestrator.emit("agent:stream", taskId, "planner", { type: "text", content: chunk } as any);
+  });
+  worker.on("execution:streaming", (taskId, chunk) => {
+    orchestrator.emit("agent:stream", taskId, "coder", { type: "text", content: chunk } as any);
+  });
 
   // Start the worker
   await worker.start();

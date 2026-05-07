@@ -1,5 +1,4 @@
 <script lang="ts">
-  import * as Sheet from '$lib/components/ui/sheet/index.js';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import * as Tabs from '$lib/components/ui/tabs/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -31,6 +30,10 @@
   let taskRuns = $state<api.TaskRun[]>([]);
   let taskArtifacts = $state<api.TaskArtifact[]>([]);
   let planLoading = $state(false);
+
+  // Live streaming output
+  let streamOutput = $state('');
+  let streamEl: HTMLPreElement | undefined = $state();
 
   let isOpen = $derived(!!task);
   let activeTab = $state('overview');
@@ -69,15 +72,33 @@
       if (payload.taskId === taskId) refresh();
     };
 
+    // Subscribe to streaming output
+    const onStream = (payload: { taskId?: string; chunk?: { content?: string } }) => {
+      if (payload.taskId === taskId && payload.chunk?.content) {
+        streamOutput += payload.chunk.content;
+        // Auto-scroll
+        if (streamEl) streamEl.scrollTop = streamEl.scrollHeight;
+      }
+    };
+
+    // Clear stream when agent starts
+    const onAgentStart = (payload: { taskId?: string }) => {
+      if (payload.taskId === taskId) streamOutput = '';
+    };
+
     const offStage = wsStore.on('pipeline:stage', onStage);
     const offComplete = wsStore.on('agent:complete', onAgentDone);
     const offError = wsStore.on('agent:error', onAgentDone);
+    const offStream = wsStore.on('agent:stream', onStream);
+    const offStart = wsStore.on('agent:start', onAgentStart);
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
       offStage();
       offComplete();
       offError();
+      offStream();
+      offStart();
     };
   });
 
@@ -239,31 +260,36 @@
   }
 </script>
 
-<!-- Task Detail Sheet -->
-<Sheet.Root open={isOpen} onOpenChange={handleOpenChange}>
-  <Sheet.Content side="right" class="w-[600px] max-w-[90vw] p-0 flex flex-col">
-    {#if task}
-      <!-- Header -->
-      <Sheet.Header class="px-6 py-4 border-b border-border space-y-0 shrink-0">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <Badge variant={meta.variant}>
-              <span class="material-symbols-outlined text-[12px] mr-1" style="font-variation-settings: 'FILL' 1;">{meta.icon}</span>
-              {meta.label}
-            </Badge>
-            <span class="text-xs text-muted-foreground font-mono">{task.id.slice(0, 8).toUpperCase()}</span>
-          </div>
-          <div class="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" onclick={() => (showDeleteConfirm = true)}>
-              <span class="material-symbols-outlined text-[16px] text-destructive">delete</span>
-            </Button>
-          </div>
-        </div>
-        <Sheet.Title class="text-lg font-bold text-foreground mt-3">{task.title}</Sheet.Title>
-        {#if task.description}
-          <Sheet.Description class="text-sm text-muted-foreground">{task.description}</Sheet.Description>
-        {/if}
-      </Sheet.Header>
+<!-- Task Detail Full Screen Overlay -->
+{#if isOpen && task}
+<div class="fixed inset-0 z-50 flex flex-col bg-background">
+  <!-- Header -->
+  <header class="px-6 py-4 border-b border-border shrink-0">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <Button variant="ghost" size="icon-sm" onclick={() => handleOpenChange(false)}>
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+        </Button>
+        <Badge variant={meta.variant}>
+          <span class="material-symbols-outlined text-[12px] mr-1" style="font-variation-settings: 'FILL' 1;">{meta.icon}</span>
+          {meta.label}
+        </Badge>
+        <span class="text-xs text-muted-foreground font-mono">{task.id.slice(0, 8).toUpperCase()}</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <Button variant="ghost" size="icon-sm" onclick={() => (showDeleteConfirm = true)}>
+          <span class="material-symbols-outlined text-[16px] text-destructive">delete</span>
+        </Button>
+        <Button variant="ghost" size="icon-sm" onclick={() => handleOpenChange(false)}>
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </Button>
+      </div>
+    </div>
+    <h2 class="text-lg font-bold text-foreground mt-3">{task.title}</h2>
+    {#if task.description}
+      <p class="text-sm text-muted-foreground">{task.description}</p>
+    {/if}
+  </header>
 
       <!-- Tabs -->
       <Tabs.Root bind:value={activeTab} class="flex-1 flex flex-col min-h-0">
@@ -375,21 +401,27 @@
                   </Button>
                 </div>
               {:else if task.status === 'planning'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20">
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
                   <span class="material-symbols-outlined text-primary text-[20px] animate-spin">psychology</span>
                   <div>
                     <p class="text-sm font-medium text-foreground">Planning in progress...</p>
                     <p class="text-xs text-muted-foreground">OpenCode is analyzing the task and creating a plan</p>
                   </div>
                 </div>
+                {#if streamOutput}
+                  <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
+                {/if}
               {:else if task.status === 'in_progress' || task.status === 'coding'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20">
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
                   <span class="material-symbols-outlined text-primary text-[20px] animate-spin">sync</span>
                   <div>
                     <p class="text-sm font-medium text-foreground">Agent is working...</p>
                     <p class="text-xs text-muted-foreground">{task.agentType ?? 'AI'} agent executing the plan</p>
                   </div>
                 </div>
+                {#if streamOutput}
+                  <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
+                {/if}
               {:else if task.status === 'needs_human'}
                 <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20">
                   <span class="material-symbols-outlined text-destructive text-[20px]">warning</span>
@@ -735,9 +767,8 @@
           </div>
         </Tabs.Content>
       </Tabs.Root>
-    {/if}
-  </Sheet.Content>
-</Sheet.Root>
+</div>
+{/if}
 
 <!-- Delete Confirmation Dialog -->
 <AlertDialog.Root bind:open={showDeleteConfirm}>
