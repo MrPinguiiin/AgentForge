@@ -16,6 +16,10 @@ const createTaskSchema = z.object({
   parentId: z.string().optional(),
   status: z.enum(TASK_STATUSES).optional(),
   priority: z.number().optional(),
+  labels: z.array(z.object({
+    category: z.string(),
+    value: z.string(),
+  })).optional(),
 });
 
 const updateTaskSchema = z.object({
@@ -54,8 +58,13 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
 
   // Create task
   app.post("/", zValidator("json", createTaskSchema), async (c) => {
-    const body = c.req.valid("json");
-    const task = await taskManager.createTask(body);
+    const { labels, ...taskData } = c.req.valid("json");
+    const task = await taskManager.createTask(taskData);
+
+    // Add labels if provided
+    if (labels && labels.length > 0) {
+      await taskManager.setTaskLabels(task.id, labels as Array<{ category: any; value: string }>);
+    }
 
     orchestrator.emit("task:created", task);
 

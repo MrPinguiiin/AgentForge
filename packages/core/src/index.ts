@@ -131,3 +131,22 @@ export type {
   KanbanOrchestratorConfig,
   KanbanOrchestratorEvents,
 } from "./orchestrator/kanban-orchestrator.js";
+
+// Worker Infrastructure
+export { JobQueue } from "./worker/job-queue.js";
+export type { JobData, JobResult, QueueEvents, JobProcessor } from "./worker/job-queue.js";
+export { OpenCodeRunner, OpenCodeServer, parsePlanningJson } from "./worker/opencode-runner.js";
+export type { OpenCodeRunOptions, OpenCodeRunResult, RunnerEvents, OpenCodeServerConfig } from "./worker/opencode-runner.js";
+export { BranchManager } from "./worker/branch-manager.js";
+export type { BranchInfo } from "./worker/branch-manager.js";
+export { ResultCollector } from "./worker/result-collector.js";
+export type { CollectedResults } from "./worker/result-collector.js";
+export { TaskHiveWorker } from "./worker/taskhive-worker.js";
+export type { WorkerEvents, WorkerConfig } from "./worker/taskhive-worker.js";
+export {
+  buildPlanningPrompt as buildTaskHivePlanningPrompt,
+  buildExecutionPrompt as buildTaskHiveExecutionPrompt,
+  buildReviewPrompt as buildTaskHiveReviewPrompt,
+  buildQAPrompt as buildTaskHiveQAPrompt,
+} from "./worker/prompt-templates.js";
+export { log as workerLog } from "./worker/logger.js";

@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
+  import * as Select from '$lib/components/ui/select/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as api from '$lib/api/client.js';
 
@@ -467,30 +468,34 @@
                     <div class="grid grid-cols-2 gap-3">
                       <div>
                         <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Provider</label>
-                        <select
-                          bind:value={agent.provider}
-                          class="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          {#each getAllProviderKeys() as p}
-                            <option value={p}>{getProviderDisplayName(p)}</option>
-                          {/each}
-                        </select>
+                        <Select.Root type="single" bind:value={agent.provider}>
+                          <Select.Trigger class="w-full">
+                            {getProviderDisplayName(agent.provider)}
+                          </Select.Trigger>
+                          <Select.Content>
+                            {#each getAllProviderKeys() as p}
+                              <Select.Item value={p} label={getProviderDisplayName(p)}>{getProviderDisplayName(p)}</Select.Item>
+                            {/each}
+                          </Select.Content>
+                        </Select.Root>
                       </div>
 
                       <div>
                         <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Model</label>
                         {#if models[agent.provider] && models[agent.provider].length > 0}
-                          <select
-                            bind:value={agent.model}
-                            class="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            {#each models[agent.provider] as model}
-                              <option value={model.id}>{model.name}</option>
-                            {/each}
-                            {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
-                              <option value={agent.model}>{agent.model}</option>
-                            {/if}
-                          </select>
+                          <Select.Root type="single" bind:value={agent.model}>
+                            <Select.Trigger class="w-full font-mono text-xs">
+                              {models[agent.provider]?.find((m) => m.id === agent.model)?.name ?? agent.model}
+                            </Select.Trigger>
+                            <Select.Content>
+                              {#each models[agent.provider] as model}
+                                <Select.Item value={model.id} label={model.name}>{model.name}</Select.Item>
+                              {/each}
+                              {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
+                                <Select.Item value={agent.model} label={agent.model}>{agent.model}</Select.Item>
+                              {/if}
+                            </Select.Content>
+                          </Select.Root>
                         {:else}
                           <Input
                             type="text"

@@ -19,10 +19,14 @@ export function getDatabase(dbPath: string): BunSQLiteDatabase<typeof schema> {
   return db;
 }
 
+export function getRawSqlite(): Database | null {
+  return sqlite;
+}
+
 export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof schema> {
   const database = getDatabase(dbPath);
 
-  // Create tables if they don't exist
+  // ===== Core tables =====
   sqlite!.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -31,6 +35,7 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
       description TEXT,
       framework TEXT,
       language TEXT,
+      default_branch TEXT DEFAULT 'main',
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
@@ -69,6 +74,7 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
       id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       file_path TEXT NOT NULL,
+      action TEXT DEFAULT 'modify',
       status TEXT NOT NULL DEFAULT 'pending',
       diff TEXT,
       original_content TEXT,
@@ -97,7 +103,85 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
       value TEXT NOT NULL,
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
+  `);
 
+  // ===== New tables (TaskHive docs alignment) =====
+
+  // Task Runs - proper run tracking per docs section 14
+  sqlite!.exec(`
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      run_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      agent_name TEXT,
+      command TEXT,
+      exit_code INTEGER,
+      stdout TEXT,
+      stderr TEXT,
+      error TEXT,
+      tokens_used INTEGER,
+      duration_ms INTEGER,
+      model TEXT,
+      started_at INTEGER,
+      finished_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
+
+  // Task Plans - planning output storage per docs section 14
+  sqlite!.exec(`
+    CREATE TABLE IF NOT EXISTS task_plans (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES task_runs(id) ON DELETE CASCADE,
+      summary TEXT,
+      plan_json TEXT NOT NULL,
+      recommended_agent TEXT,
+      risk_level TEXT,
+      needs_human INTEGER DEFAULT 0,
+      approved INTEGER DEFAULT 0,
+      approved_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
+
+  // Task Artifacts - git diff, test logs, etc per docs section 14
+  sqlite!.exec(`
+    CREATE TABLE IF NOT EXISTS task_artifacts (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      run_id TEXT NOT NULL REFERENCES task_runs(id) ON DELETE CASCADE,
+      artifact_type TEXT NOT NULL,
+      content TEXT,
+      metadata TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
+
+  // Job Queue - SQLite-backed async job queue
+  sqlite!.exec(`
+    CREATE TABLE IF NOT EXISTS job_queue (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      payload TEXT,
+      result TEXT,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      priority INTEGER NOT NULL DEFAULT 0,
+      locked_at INTEGER,
+      scheduled_at INTEGER,
+      started_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
+
+  // ===== Indexes =====
+  sqlite!.exec(`
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -105,10 +189,17 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
     CREATE INDEX IF NOT EXISTS idx_task_labels_category ON task_labels(category);
     CREATE INDEX IF NOT EXISTS idx_task_files_task_id ON task_files(task_id);
     CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs(status);
+    CREATE INDEX IF NOT EXISTS idx_task_plans_task_id ON task_plans(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_artifacts_task_id ON task_artifacts(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_artifacts_run_id ON task_artifacts(run_id);
+    CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_job_queue_type ON job_queue(type);
+    CREATE INDEX IF NOT EXISTS idx_job_queue_task_id ON job_queue(task_id);
   `);
 
-  // --- Migrations for existing databases ---
-  // Add new columns to tasks table if they don't exist yet
+  // ===== Migrations for existing databases =====
   const columnMigrations = [
     "ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT",
     "ALTER TABLE tasks ADD COLUMN branch TEXT",
@@ -117,21 +208,23 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
     "ALTER TABLE tasks ADD COLUMN routed_at INTEGER",
     "ALTER TABLE tasks ADD COLUMN started_at INTEGER",
     "ALTER TABLE tasks ADD COLUMN completed_at INTEGER",
+    "ALTER TABLE projects ADD COLUMN default_branch TEXT DEFAULT 'main'",
+    "ALTER TABLE task_files ADD COLUMN action TEXT DEFAULT 'modify'",
   ];
 
   for (const migration of columnMigrations) {
     try {
       sqlite!.exec(migration);
     } catch {
-      // Column already exists - ignore "duplicate column" errors
+      // Column already exists - ignore
     }
   }
 
-  // Migrate old status values to new ones
+  // Migrate old status values
   try {
     sqlite!.exec("UPDATE tasks SET status = 'backlog' WHERE status = 'todo'");
   } catch {
-    // Ignore if fails
+    // Ignore
   }
 
   return database;

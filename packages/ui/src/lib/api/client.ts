@@ -65,7 +65,9 @@ export async function createTask(task: {
   projectId: string;
   title: string;
   description?: string;
+  acceptanceCriteria?: string;
   priority?: number;
+  labels?: Array<{ category: string; value: string }>;
 }): Promise<Task> {
   const data = await request<{ task: Task }>('/tasks', {
     method: 'POST',
@@ -300,4 +302,133 @@ export interface BrowseResult {
 export async function browseDirectory(dirPath?: string): Promise<BrowseResult> {
   const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : '';
   return request<BrowseResult>(`/browse${params}`);
+}
+
+// ── Pipeline (TaskHive) ──────────────────────
+
+export interface PipelineJobResult {
+  success: boolean;
+  jobId?: string;
+  status?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface PlanningResult {
+  summary: string;
+  needs_human: boolean;
+  human_questions: string[];
+  risk_level: 'low' | 'medium' | 'high';
+  recommended_agent: string;
+  recommended_subagents: string[];
+  files_to_inspect: string[];
+  likely_files_to_change: string[];
+  implementation_steps: string[];
+  test_plan: string[];
+  acceptance_checklist: string[];
+  routing_decision: {
+    next_column: string;
+    reason: string;
+  };
+}
+
+export interface TaskPlan {
+  id: string;
+  summary: string | null;
+  planJson: PlanningResult;
+  recommendedAgent: string | null;
+  riskLevel: string | null;
+  needsHuman: boolean | null;
+  approved: boolean | null;
+  approvedAt: string | null;
+  createdAt: string;
+}
+
+export interface TaskRun {
+  id: string;
+  taskId: string;
+  runType: 'planning' | 'execution' | 'review' | 'qa';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  agentName: string | null;
+  command: string | null;
+  exitCode: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  error: string | null;
+  tokensUsed: number | null;
+  durationMs: number | null;
+  model: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
+export interface TaskArtifact {
+  id: string;
+  taskId: string;
+  runId: string;
+  artifactType: 'git_status' | 'git_diff_stat' | 'git_diff' | 'test_log' | 'final_summary' | 'planning_json' | 'review_verdict' | 'qa_report';
+  content: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** Run planning for a task in backlog */
+export async function runPlanning(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/run-planning`, { method: 'POST' });
+}
+
+/** Get the latest plan for a task (plan is null if none exists yet) */
+export async function getTaskPlan(taskId: string): Promise<{ taskId: string; plan: TaskPlan | null }> {
+  return request<{ taskId: string; plan: TaskPlan | null }>(`/pipeline/${taskId}/plan`);
+}
+
+/** Approve a plan and start execution */
+export async function approvePlan(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/approve-plan`, { method: 'POST' });
+}
+
+/** Retry planning for a task */
+export async function retryPlanning(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/retry-planning`, { method: 'POST' });
+}
+
+/** Cancel a task and all its jobs */
+export async function cancelTask(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/cancel`, { method: 'POST' });
+}
+
+/** Run AI review on a task */
+export async function runReviewPipeline(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/run-review`, { method: 'POST' });
+}
+
+/** Run QA on a task */
+export async function runQAPipeline(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/run-qa`, { method: 'POST' });
+}
+
+/** Accept review and move to QA */
+export async function acceptReviewPipeline(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/accept-review`, { method: 'POST' });
+}
+
+/** Decline review */
+export async function declineReviewPipeline(taskId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/${taskId}/decline-review`, { method: 'POST' });
+}
+
+/** Get all runs for a task */
+export async function getTaskRuns(taskId: string): Promise<{ runs: TaskRun[] }> {
+  return request<{ runs: TaskRun[] }>(`/pipeline/${taskId}/runs`);
+}
+
+/** Get all artifacts for a task */
+export async function getTaskArtifacts(taskId: string): Promise<{ artifacts: TaskArtifact[] }> {
+  return request<{ artifacts: TaskArtifact[] }>(`/pipeline/${taskId}/artifacts`);
+}
+
+/** Get queue stats */
+export async function getQueueStats(): Promise<{ stats: Record<string, number> }> {
+  return request<{ stats: Record<string, number> }>('/pipeline/queue/stats');
 }

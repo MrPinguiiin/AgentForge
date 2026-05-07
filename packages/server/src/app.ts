@@ -4,7 +4,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { Orchestrator } from "@ai-coder/core";
+import type { Orchestrator, TaskHiveWorker } from "@ai-coder/core";
 import { createProjectRoutes } from "./routes/projects.js";
 import { createTaskRoutes } from "./routes/tasks.js";
 import { createGitRoutes } from "./routes/git.js";
@@ -14,10 +14,11 @@ import { createKanbanRoutes } from "./routes/kanban.js";
 import { createToolsRoutes } from "./routes/tools.js";
 import { createTerminalRoutes } from "./routes/terminal.js";
 import { createLandingRoutes } from "./routes/landing.js";
+import { createPipelineRoutes } from "./routes/pipeline.js";
 import { errorHandler } from "./middleware/error.js";
 import { requestLogger } from "./middleware/logger.js";
 
-export function createApp(orchestrator: Orchestrator, staticDir?: string) {
+export function createApp(orchestrator: Orchestrator, staticDir?: string, worker?: TaskHiveWorker) {
   const app = new Hono();
 
   // ── Middleware ──────────────────────
@@ -37,6 +38,11 @@ export function createApp(orchestrator: Orchestrator, staticDir?: string) {
   app.route("/api/kanban", createKanbanRoutes(orchestrator));
   app.route("/api/tools", createToolsRoutes());
   app.route("/api/terminal", createTerminalRoutes(orchestrator));
+
+  // Pipeline routes (TaskHive worker)
+  if (worker) {
+    app.route("/api/pipeline", createPipelineRoutes(worker));
+  }
 
   // ── Health Check ──────────────────────
   app.get("/api/health", (c) => {

@@ -6,6 +6,7 @@ import {
   TaskManager,
   ProviderRegistry,
   DEFAULT_AI_CONFIG,
+  TaskHiveWorker,
 } from "@ai-coder/core";
 import type { AIConfig } from "@ai-coder/core";
 import { createApp } from "./app.js";
@@ -78,8 +79,47 @@ export async function startServer(
     autoPush: false,
   });
 
+  // Create TaskHive Worker
+  const worker = new TaskHiveWorker(db, {
+    concurrency: 1,
+    pollInterval: 2000,
+    planningTimeout: 15 * 60 * 1000,
+    executionTimeout: 10 * 60 * 1000,
+    openCodePort: parseInt(process.env.OPENCODE_SERVER_PORT || "4200"),
+    openCodeBinary: process.env.OPENCODE_BINARY || "opencode",
+    openCodeCwd: projectRoot,
+    openCodeModel: process.env.OPENCODE_MODEL || "9router/cx/gpt-5.5",
+  });
+
+  // Forward worker events to orchestrator for WebSocket broadcast
+  // Use pipeline events which match the OrchestratorEvents interface
+  worker.on("task:moved", (taskId, from, to) => {
+    orchestrator.emit("pipeline:stage", taskId, to);
+  });
+  worker.on("planning:started", (taskId, _runId) => {
+    orchestrator.emit("agent:start", taskId, "planner");
+  });
+  worker.on("planning:completed", (taskId, _plan) => {
+    orchestrator.emit("agent:complete", taskId, "planner");
+  });
+  worker.on("planning:failed", (taskId, error) => {
+    orchestrator.emit("agent:error", taskId, "planner", new Error(error));
+  });
+  worker.on("execution:started", (taskId, _runId) => {
+    orchestrator.emit("agent:start", taskId, "coder");
+  });
+  worker.on("execution:completed", (taskId) => {
+    orchestrator.emit("agent:complete", taskId, "coder");
+  });
+  worker.on("execution:failed", (taskId, error) => {
+    orchestrator.emit("agent:error", taskId, "coder", new Error(error));
+  });
+
+  // Start the worker
+  await worker.start();
+
   // Create Hono app
-  const app = createApp(orchestrator, finalConfig.staticDir);
+  const app = createApp(orchestrator, finalConfig.staticDir, worker);
 
   // Setup WebSocket
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -136,6 +176,7 @@ export async function startServer(
   return {
     port: availablePort,
     close: () => {
+      worker.stop();
       server.close();
     },
   };

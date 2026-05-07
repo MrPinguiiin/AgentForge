@@ -32,7 +32,11 @@ export type AgentType =
   | "docs"
   | "explore";
 
-export type TaskFileStatus = "pending" | "modified" | "created" | "deleted" | "reviewed";
+export type TaskFileStatus = "pending" | "modified" | "created" | "deleted" | "reviewed" | "applied" | "rejected";
+
+export type RunType = "planning" | "execution" | "review" | "qa";
+export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type ArtifactType = "git_status" | "git_diff_stat" | "git_diff" | "test_log" | "final_summary" | "planning_json" | "review_verdict" | "qa_report";
 
 // --- Label Types ---
 
@@ -58,6 +62,26 @@ export type LabelValue =
   // area labels (extensible via metadata)
   | string;
 
+// --- Planning JSON types ---
+
+export interface PlanningResult {
+  summary: string;
+  needs_human: boolean;
+  human_questions: string[];
+  risk_level: "low" | "medium" | "high";
+  recommended_agent: string;
+  recommended_subagents: string[];
+  files_to_inspect: string[];
+  likely_files_to_change: string[];
+  implementation_steps: string[];
+  test_plan: string[];
+  acceptance_checklist: string[];
+  routing_decision: {
+    next_column: string;
+    reason: string;
+  };
+}
+
 // --- Tables ---
 
 export const projects = sqliteTable("projects", {
@@ -67,6 +91,7 @@ export const projects = sqliteTable("projects", {
   description: text("description"),
   framework: text("framework"),
   language: text("language"),
+  defaultBranch: text("default_branch").default("main"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -121,6 +146,7 @@ export const taskFiles = sqliteTable("task_files", {
     .notNull()
     .references(() => tasks.id, { onDelete: "cascade" }),
   filePath: text("file_path").notNull(),
+  action: text("action").$type<"create" | "modify" | "delete">().default("modify"),
   status: text("status").$type<TaskFileStatus>().notNull().default("pending"),
   diff: text("diff"),
   originalContent: text("original_content"),
@@ -132,6 +158,73 @@ export const taskFiles = sqliteTable("task_files", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// --- NEW: Task Plans (from docs section 14) ---
+
+export const taskPlans = sqliteTable("task_plans", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  runId: text("run_id")
+    .notNull()
+    .references(() => taskRuns.id, { onDelete: "cascade" }),
+  summary: text("summary"),
+  planJson: text("plan_json", { mode: "json" }).$type<PlanningResult>().notNull(),
+  recommendedAgent: text("recommended_agent"),
+  riskLevel: text("risk_level").$type<"low" | "medium" | "high">(),
+  needsHuman: integer("needs_human", { mode: "boolean" }).default(false),
+  approved: integer("approved", { mode: "boolean" }).default(false),
+  approvedAt: integer("approved_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// --- REFACTORED: Task Runs (aligned with docs section 14) ---
+
+export const taskRuns = sqliteTable("task_runs", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  runType: text("run_type").$type<RunType>().notNull(),
+  status: text("status").$type<RunStatus>().notNull().default("queued"),
+  agentName: text("agent_name"),
+  command: text("command"),
+  exitCode: integer("exit_code"),
+  stdout: text("stdout"),
+  stderr: text("stderr"),
+  error: text("error"),
+  tokensUsed: integer("tokens_used"),
+  durationMs: integer("duration_ms"),
+  model: text("model"),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  finishedAt: integer("finished_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// --- NEW: Task Artifacts (from docs section 14) ---
+
+export const taskArtifacts = sqliteTable("task_artifacts", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  runId: text("run_id")
+    .notNull()
+    .references(() => taskRuns.id, { onDelete: "cascade" }),
+  artifactType: text("artifact_type").$type<ArtifactType>().notNull(),
+  content: text("content"),
+  metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+// --- LEGACY: Agent Runs (kept for backward compat, will be migrated) ---
 
 export const agentRuns = sqliteTable("agent_runs", {
   id: text("id").primaryKey(),
@@ -150,6 +243,33 @@ export const agentRuns = sqliteTable("agent_runs", {
     .notNull()
     .$defaultFn(() => new Date()),
   completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
+// --- Job Queue (SQLite-backed) ---
+
+export type JobStatus = "pending" | "active" | "completed" | "failed" | "cancelled";
+export type JobType = "planning" | "execution" | "review" | "qa";
+
+export const jobQueue = sqliteTable("job_queue", {
+  id: text("id").primaryKey(),
+  type: text("type").$type<JobType>().notNull(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  status: text("status").$type<JobStatus>().notNull().default("pending"),
+  payload: text("payload", { mode: "json" }).$type<Record<string, unknown>>(),
+  result: text("result", { mode: "json" }).$type<Record<string, unknown>>(),
+  error: text("error"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  priority: integer("priority").notNull().default(0),
+  lockedAt: integer("locked_at", { mode: "timestamp" }),
+  scheduledAt: integer("scheduled_at", { mode: "timestamp" }),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const config = sqliteTable("config", {
@@ -174,8 +294,20 @@ export type NewTaskLabel = typeof taskLabels.$inferInsert;
 export type TaskFile = typeof taskFiles.$inferSelect;
 export type NewTaskFile = typeof taskFiles.$inferInsert;
 
+export type TaskPlan = typeof taskPlans.$inferSelect;
+export type NewTaskPlan = typeof taskPlans.$inferInsert;
+
+export type TaskRun = typeof taskRuns.$inferSelect;
+export type NewTaskRun = typeof taskRuns.$inferInsert;
+
+export type TaskArtifact = typeof taskArtifacts.$inferSelect;
+export type NewTaskArtifact = typeof taskArtifacts.$inferInsert;
+
 export type AgentRun = typeof agentRuns.$inferSelect;
 export type NewAgentRun = typeof agentRuns.$inferInsert;
+
+export type Job = typeof jobQueue.$inferSelect;
+export type NewJob = typeof jobQueue.$inferInsert;
 
 export type Config = typeof config.$inferSelect;
 export type NewConfig = typeof config.$inferInsert;

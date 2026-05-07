@@ -89,6 +89,9 @@ class WebSocketStore {
   }
 
   private dispatch(type: string, payload: unknown): void {
+    // Styled console log for pipeline events
+    this.logPipelineEvent(type, payload);
+
     const handlers = this.handlers.get(type);
     if (handlers) {
       for (const handler of handlers) {
@@ -110,6 +113,79 @@ class WebSocketStore {
           console.error('[WS] Wildcard handler error:', err);
         }
       }
+    }
+  }
+
+  private logPipelineEvent(type: string, payload: unknown): void {
+    const p = payload as Record<string, unknown> | undefined;
+    const taskId = (p?.taskId as string)?.slice(0, 8)?.toUpperCase() ?? '';
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+    // Color styles for different event types
+    const styles: Record<string, string> = {
+      'pipeline:': 'color: #a78bfa; font-weight: bold',     // purple
+      'agent:start': 'color: #60a5fa; font-weight: bold',   // blue
+      'agent:complete': 'color: #34d399; font-weight: bold', // green
+      'agent:error': 'color: #f87171; font-weight: bold',   // red
+      'agent:stream': 'color: #9ca3af',                     // gray (quiet)
+      'task:created': 'color: #fbbf24; font-weight: bold',  // yellow
+      'task:updated': 'color: #fbbf24',                     // yellow
+      'task:status': 'color: #f472b6; font-weight: bold',   // pink
+      'task:deleted': 'color: #f87171',                     // red
+    };
+
+    // Find matching style
+    let style = 'color: #9ca3af';
+    for (const [prefix, s] of Object.entries(styles)) {
+      if (type.startsWith(prefix) || type.includes(prefix.replace(':', ''))) {
+        style = s;
+        break;
+      }
+    }
+
+    // Skip noisy streaming events from cluttering console
+    if (type === 'agent:streaming' || type === 'agent:stream') return;
+
+    // Format based on event type
+    if (type.includes('agent:start')) {
+      const agentType = (p?.type as string) ?? (p?.agentType as string) ?? '';
+      console.log(
+        `%c[${time}] %c[PIPELINE] %c${agentType.toUpperCase()} started %c${taskId}`,
+        'color: #6b7280', style, 'color: #60a5fa; font-weight: bold', 'color: #6b7280'
+      );
+    } else if (type.includes('agent:complete')) {
+      const agentType = (p?.type as string) ?? (p?.agentType as string) ?? '';
+      console.log(
+        `%c[${time}] %c[PIPELINE] %c${agentType.toUpperCase()} completed %c${taskId}`,
+        'color: #6b7280', style, 'color: #34d399; font-weight: bold', 'color: #6b7280'
+      );
+    } else if (type.includes('agent:error')) {
+      const error = (p?.error as string) ?? 'Unknown error';
+      const agentType = (p?.type as string) ?? '';
+      console.log(
+        `%c[${time}] %c[PIPELINE] %c${agentType.toUpperCase()} FAILED %c${taskId}\n%c  Error: ${error}`,
+        'color: #6b7280', style, 'color: #f87171; font-weight: bold', 'color: #6b7280', 'color: #f87171'
+      );
+    } else if (type === 'task:created') {
+      const title = (p as any)?.title ?? '';
+      console.log(
+        `%c[${time}] %c[TASK] %cCreated: ${title}`,
+        'color: #6b7280', style, 'color: #fbbf24'
+      );
+    } else if (type.includes('status')) {
+      const from = (p?.from as string) ?? '';
+      const to = (p?.to as string) ?? '';
+      console.log(
+        `%c[${time}] %c[TASK] %c${taskId} %c${from} → ${to}`,
+        'color: #6b7280', style, 'color: #f472b6; font-weight: bold', 'color: #e5e7eb'
+      );
+    } else if (type === 'task:updated') {
+      // Quiet - just a refresh signal
+    } else {
+      console.log(
+        `%c[${time}] %c[WS] %c${type} %c${taskId}`,
+        'color: #6b7280', 'color: #9ca3af', style, 'color: #6b7280'
+      );
     }
   }
 

@@ -96,7 +96,12 @@ export async function loadTasks(projectId: string): Promise<void> {
   }
 }
 
-export async function addTask(title: string, description?: string): Promise<Task | null> {
+export async function addTask(
+  title: string,
+  description?: string,
+  acceptanceCriteria?: string,
+  labels?: Array<{ category: string; value: string }>,
+): Promise<Task | null> {
   const project = get(currentProject);
   if (!project) return null;
 
@@ -104,6 +109,8 @@ export async function addTask(title: string, description?: string): Promise<Task
     projectId: project.id,
     title,
     description,
+    acceptanceCriteria,
+    labels,
   });
 
   allTasks.update((tasks) => [...tasks, task]);
@@ -117,6 +124,7 @@ export async function selectTaskById(id: string): Promise<void> {
     selectedTask.set(task);
     selectedTaskFiles.set(files);
     selectedTaskRuns.set(runs);
+    allTasks.update((tasks) => tasks.map((t) => (t.id === task.id ? task : t)));
   } finally {
     isLoading.set(false);
   }
