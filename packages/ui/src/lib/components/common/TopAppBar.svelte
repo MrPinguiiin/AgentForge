@@ -4,6 +4,8 @@
     projects,
     selectProject,
   } from '$lib/stores/tasks.js';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
   import type { Snippet } from 'svelte';
 
   let {
@@ -19,40 +21,38 @@
   }
 </script>
 
-<header class="w-full h-16 border-b border-outline-variant bg-background flex justify-between items-center px-8 sticky top-0 z-40 shrink-0">
+<header class="w-full h-14 border-b border-border bg-background flex justify-between items-center px-6 sticky top-0 z-40 shrink-0">
   <!-- Left: Project Selector -->
-  <div class="flex items-center gap-6">
+  <div class="flex items-center gap-4">
     <div class="flex items-center gap-2 cursor-pointer group">
-      <div class="h-6 w-6 rounded bg-surface-container-highest border border-outline-variant flex items-center justify-center group-hover:border-primary transition-colors">
-        <span class="text-xs font-bold text-on-surface">
+      <div class="h-7 w-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center group-hover:border-primary/40 transition-colors">
+        <span class="text-xs font-bold text-primary">
           {$currentProject?.name?.charAt(0).toUpperCase() ?? 'P'}
         </span>
       </div>
       {#if $projects.length > 1}
         <select
-          class="font-bold text-on-surface text-lg tracking-tight bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none pr-6"
+          class="font-semibold text-foreground text-base tracking-tight bg-transparent border-none focus:outline-none focus:ring-0 cursor-pointer appearance-none pr-6"
           value={$currentProject?.id ?? ''}
           onchange={handleProjectChange}
         >
           {#each $projects as project}
-            <option value={project.id} class="bg-surface-container text-on-surface">Project: {project.name}</option>
+            <option value={project.id} class="bg-popover text-popover-foreground">{project.name}</option>
           {/each}
         </select>
-        <span class="material-symbols-outlined text-secondary text-sm group-hover:text-on-surface transition-colors -ml-4">unfold_more</span>
+        <span class="material-symbols-outlined text-muted-foreground text-sm group-hover:text-foreground transition-colors -ml-4">unfold_more</span>
       {:else if $currentProject}
-        <span class="font-bold text-on-surface text-lg tracking-tight">Project: {$currentProject.name}</span>
+        <span class="font-semibold text-foreground text-base tracking-tight">{$currentProject.name}</span>
       {/if}
     </div>
 
     {#if $currentProject?.framework}
-      <span class="text-xs px-2 py-0.5 rounded bg-surface-container-highest text-secondary border border-outline-variant">
-        {$currentProject.framework}
-      </span>
+      <Badge variant="outline" class="text-xs">{$currentProject.framework}</Badge>
     {/if}
   </div>
 
   <!-- Right: Actions -->
-  <div class="flex items-center gap-4">
+  <div class="flex items-center gap-3">
     {#if actions}
       {@render actions()}
     {/if}

@@ -1,6 +1,9 @@
 <script lang="ts">
-  import Modal from '../common/Modal.svelte';
-  import Button from '../common/Button.svelte';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Textarea } from '$lib/components/ui/textarea/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
   import { addTask } from '../../stores/tasks.js';
 
   let {
@@ -31,36 +34,41 @@
   }
 </script>
 
-<Modal bind:open title="Add Task" description="Create a new task for the current project.">
-  <form class="p-4 space-y-4" onsubmit={handleSubmit}>
-    <div>
-      <label for="task-title" class="block text-xs font-medium text-text-muted mb-1.5">Title</label>
-      <input
-        id="task-title"
-        type="text"
-        bind:value={title}
-        placeholder="What needs to be done?"
-        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
-        required
-      />
-    </div>
+<Dialog.Root bind:open>
+  <Dialog.Content class="sm:max-w-[480px]">
+    <Dialog.Header>
+      <Dialog.Title>Create Task</Dialog.Title>
+      <Dialog.Description>Add a new task to the current project board.</Dialog.Description>
+    </Dialog.Header>
 
-    <div>
-      <label for="task-desc" class="block text-xs font-medium text-text-muted mb-1.5">Description</label>
-      <textarea
-        id="task-desc"
-        bind:value={description}
-        placeholder="Describe the task in detail..."
-        rows="4"
-        class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary resize-none"
-      ></textarea>
-    </div>
+    <form class="space-y-4 py-4" onsubmit={handleSubmit}>
+      <div class="space-y-2">
+        <Label for="task-title">Title</Label>
+        <Input
+          id="task-title"
+          bind:value={title}
+          placeholder="What needs to be done?"
+          required
+        />
+      </div>
 
-    <div class="flex justify-end gap-2 pt-2">
-      <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-      <Button variant="primary" type="submit" loading={submitting} disabled={!title.trim()}>
-        Create Task
-      </Button>
-    </div>
-  </form>
-</Modal>
+      <div class="space-y-2">
+        <Label for="task-desc">Description</Label>
+        <Textarea
+          id="task-desc"
+          bind:value={description}
+          placeholder="Describe the task in detail..."
+          rows={4}
+          class="resize-none"
+        />
+      </div>
+
+      <Dialog.Footer>
+        <Button variant="outline" type="button" onclick={() => (open = false)}>Cancel</Button>
+        <Button type="submit" disabled={!title.trim() || submitting}>
+          {submitting ? 'Creating...' : 'Create Task'}
+        </Button>
+      </Dialog.Footer>
+    </form>
+  </Dialog.Content>
+</Dialog.Root>

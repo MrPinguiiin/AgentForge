@@ -40,17 +40,17 @@
   }
 </script>
 
-<div class="flex flex-col w-[320px] shrink-0 max-h-full {isHighlight ? 'bg-surface-container-low/50 rounded-xl p-2 border border-outline-variant/50' : ''}">
+<div class="flex flex-col w-[320px] shrink-0 max-h-full {isHighlight ? 'bg-primary/5 rounded-xl p-2 border border-primary/20' : ''}">
   <!-- Column Header -->
   <div class="flex items-center justify-between mb-4 px-1 sticky top-0 z-10 py-1 {isHighlight ? 'px-2' : ''}">
     <div class="flex items-center gap-2">
-      <span class="w-2 h-2 rounded-full {colConfig?.dotColor ?? 'bg-secondary'} {isHighlight ? 'shadow-[0_0_8px_rgba(167,139,250,0.6)]' : ''}"></span>
-      <h3 class="text-sm font-semibold tracking-wide uppercase {isHighlight ? 'font-bold ' : ''}{colConfig?.textColor ?? 'text-secondary'}">{title}</h3>
-      <span class="text-xs {isHighlight ? 'text-primary bg-primary/10 border border-primary/20' : 'text-secondary bg-surface-container'} px-1.5 py-0.5 rounded">
+      <span class="w-2 h-2 rounded-full {colConfig?.dotColor ?? 'bg-muted-foreground'} {isHighlight ? 'shadow-[0_0_8px] shadow-primary/60' : ''}"></span>
+      <h3 class="text-sm font-semibold tracking-wide uppercase {isHighlight ? 'font-bold ' : ''}{colConfig?.textColor ?? 'text-muted-foreground'}">{title}</h3>
+      <span class="text-xs {isHighlight ? 'text-primary bg-primary/10 border border-primary/20' : 'text-muted-foreground bg-secondary'} px-1.5 py-0.5 rounded-md">
         {tasks.length}
       </span>
     </div>
-    <button class="text-secondary hover:text-on-surface transition-colors">
+    <button class="text-muted-foreground hover:text-foreground transition-colors">
       <span class="material-symbols-outlined text-[18px]">more_horiz</span>
     </button>
   </div>
@@ -61,7 +61,7 @@
     use:dndzone={{
       items,
       flipDurationMs: 200,
-      dropTargetStyle: { outline: '2px dashed #27272a', borderRadius: '8px' },
+      dropTargetStyle: { outline: '2px dashed var(--border)', borderRadius: '12px' },
     }}
     onconsider={handleConsider}
     onfinalize={handleFinalize}
@@ -73,7 +73,7 @@
     {/each}
 
     {#if items.length === 0}
-      <div class="h-24 border-2 border-dashed border-outline-variant rounded-lg flex items-center justify-center text-secondary text-sm">
+      <div class="h-24 border-2 border-dashed border-border rounded-lg flex items-center justify-center text-muted-foreground text-sm">
         Drop tasks here
       </div>
     {/if}

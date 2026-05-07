@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { checkOpenCodeStatus, type OpenCodeStatus } from '$lib/api/client.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
+  import { themeStore } from '$lib/stores/theme.svelte.js';
   import '../app.css';
 
   let { children }: { children: Snippet } = $props();
@@ -30,24 +33,18 @@
 </script>
 
 <div class="flex h-screen overflow-hidden bg-background">
-  <!-- SideNavBar -->
-  <nav class="bg-surface h-screen w-64 border-r border-outline-variant flex-col py-6 px-4 shrink-0 z-50 hidden md:flex">
-    <!-- Brand Header -->
+  <!-- Sidebar -->
+  <nav class="bg-sidebar h-screen w-64 border-r border-sidebar-border flex-col py-6 px-4 shrink-0 z-50 hidden md:flex">
+    <!-- Brand -->
     <div class="flex items-center gap-3 mb-8 px-2">
-      <div class="h-8 w-8 rounded-lg bg-primary-container flex items-center justify-center shrink-0">
-        <span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+      <div class="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+        <span class="material-symbols-outlined text-primary-foreground text-lg" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
       </div>
       <div>
-        <h1 class="text-xl font-bold tracking-tighter text-on-surface leading-none">AgentForge</h1>
-        <p class="text-secondary text-xs mt-1">v0.1.0</p>
+        <h1 class="text-xl font-bold tracking-tighter text-sidebar-foreground leading-none">AgentForge</h1>
+        <p class="text-muted-foreground text-xs mt-1">v0.1.0</p>
       </div>
     </div>
-
-    <!-- CTA Button -->
-    <button class="w-full bg-primary text-on-primary font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 mb-6 hover:bg-primary-fixed-dim transition-colors">
-      <span class="material-symbols-outlined text-sm">add</span>
-      New Task
-    </button>
 
     <!-- Main Nav -->
     <div class="flex-1 overflow-y-auto">
@@ -56,10 +53,10 @@
           <li>
             <a
               href={item.href}
-              class="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ease-in-out text-sm tracking-tight
+              class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ease-in-out text-sm tracking-tight
                 {currentPath === item.href
-                  ? 'bg-surface-container-highest text-primary font-semibold border-r-2 border-primary'
-                  : 'text-secondary hover:bg-surface-container-high hover:text-on-surface'}"
+                  ? 'bg-sidebar-accent text-sidebar-primary font-semibold'
+                  : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground'}"
               onclick={() => (currentPath = item.href)}
             >
               <span
@@ -73,53 +70,69 @@
       </ul>
     </div>
 
-    <!-- Footer Nav -->
-    <div class="mt-auto pt-6 border-t border-outline-variant">
-      <ul class="space-y-1">
-        <!-- OpenCode Status -->
-        <li>
-          <div class="flex items-center justify-between px-3 py-2">
-            <div class="flex items-center gap-2 text-xs text-secondary">
-              {#if openCodeLoading}
-                <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
-                <span>Checking OpenCode...</span>
-              {:else if openCodeStatus.installed}
-                <span class="w-2 h-2 rounded-full bg-tertiary"></span>
-                <span>OpenCode <span class="text-on-surface font-medium">v{openCodeStatus.version}</span></span>
-              {:else}
-                <span class="w-2 h-2 rounded-full bg-secondary"></span>
-                <span>OpenCode</span>
-              {/if}
-            </div>
-            {#if !openCodeLoading && !openCodeStatus.installed}
-              <a
-                href="https://opencode.ai/docs/"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-xs text-primary hover:text-primary-fixed-dim transition-colors"
-              >
-                Install &rarr;
-              </a>
-            {/if}
-          </div>
-        </li>
-        <li>
-          <a class="flex items-center gap-3 px-3 py-2 rounded-lg text-secondary hover:bg-surface-container-high hover:text-on-surface transition-all duration-200 ease-in-out text-sm tracking-tight" href="https://github.com" target="_blank">
-            <span class="material-symbols-outlined text-lg">description</span>
-            Docs
+    <!-- Footer -->
+    <div class="mt-auto pt-4 border-t border-sidebar-border space-y-1">
+      <!-- Theme Switcher -->
+      <div class="flex items-center justify-between px-3 py-2">
+        <span class="text-xs text-muted-foreground">Theme</span>
+        <div class="flex items-center gap-0.5 bg-secondary rounded-lg p-0.5">
+          <button
+            onclick={() => themeStore.set('light')}
+            class="p-1.5 rounded-md transition-all {themeStore.current === 'light' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}"
+            title="Light"
+          >
+            <span class="material-symbols-outlined text-[16px]">light_mode</span>
+          </button>
+          <button
+            onclick={() => themeStore.set('dark')}
+            class="p-1.5 rounded-md transition-all {themeStore.current === 'dark' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}"
+            title="Dark"
+          >
+            <span class="material-symbols-outlined text-[16px]">dark_mode</span>
+          </button>
+          <button
+            onclick={() => themeStore.set('system')}
+            class="p-1.5 rounded-md transition-all {themeStore.current === 'system' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}"
+            title="System"
+          >
+            <span class="material-symbols-outlined text-[16px]">computer</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- OpenCode Status -->
+      <div class="flex items-center justify-between px-3 py-2">
+        <div class="flex items-center gap-2 text-xs text-muted-foreground">
+          {#if openCodeLoading}
+            <span class="w-2 h-2 rounded-full bg-muted-foreground animate-pulse"></span>
+            <span>Checking OpenCode...</span>
+          {:else if openCodeStatus.installed}
+            <span class="w-2 h-2 rounded-full bg-chart-1"></span>
+            <span>OpenCode <span class="text-foreground font-medium">v{openCodeStatus.version}</span></span>
+          {:else}
+            <span class="w-2 h-2 rounded-full bg-muted-foreground"></span>
+            <span>OpenCode</span>
+          {/if}
+        </div>
+        {#if !openCodeLoading && !openCodeStatus.installed}
+          <a
+            href="https://opencode.ai/docs/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-xs text-primary hover:underline"
+          >
+            Install &rarr;
           </a>
-        </li>
-        <li>
-          <div class="flex items-center gap-3 px-3 py-2 text-sm text-secondary">
-            <span class="w-2 h-2 rounded-full bg-tertiary"></span>
-            Server connected
-          </div>
-        </li>
-      </ul>
+        {/if}
+      </div>
+      <div class="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+        <span class="w-2 h-2 rounded-full bg-chart-1"></span>
+        Server connected
+      </div>
     </div>
   </nav>
 
-  <!-- Main Content Area -->
+  <!-- Main Content -->
   <div class="flex-1 flex flex-col min-w-0 bg-background">
     {@render children()}
   </div>

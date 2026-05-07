@@ -55,13 +55,13 @@
 </script>
 
 <div class="rounded-lg border border-border overflow-hidden">
-  <div class="flex items-center justify-between px-3 py-1.5 bg-surface-lighter border-b border-border">
-    <span class="text-xs text-text-muted">
+  <div class="flex items-center justify-between px-3 py-1.5 bg-muted border-b border-border">
+    <span class="text-xs text-muted-foreground">
       {agentType ? `${agentType} output` : 'Agent output'}
     </span>
     {#if isStreaming}
-      <span class="flex items-center gap-1.5 text-[10px] text-info">
-        <span class="w-1.5 h-1.5 rounded-full bg-info animate-pulse"></span>
+      <span class="flex items-center gap-1.5 text-[10px] text-primary">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
         Streaming...
       </span>
     {/if}
@@ -72,9 +72,9 @@
     class="overflow-auto max-h-64 p-3"
   >
     {#if output}
-      <pre class="text-[11px] font-mono text-text-muted whitespace-pre-wrap break-words">{output}</pre>
+      <pre class="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-words">{output}</pre>
     {:else}
-      <div class="text-xs text-text-muted text-center py-4">
+      <div class="text-xs text-muted-foreground text-center py-4">
         {isStreaming ? 'Waiting for output...' : 'No output yet'}
       </div>
     {/if}

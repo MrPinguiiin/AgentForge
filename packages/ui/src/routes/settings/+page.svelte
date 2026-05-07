@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Button from '$lib/components/common/Button.svelte';
-  import Badge from '$lib/components/common/Badge.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Badge } from '$lib/components/ui/badge/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
+  import * as Card from '$lib/components/ui/card/index.js';
   import * as api from '$lib/api/client.js';
 
   interface AgentConfig {
@@ -264,40 +268,38 @@
 <div class="flex-1 overflow-y-auto">
   <div class="max-w-2xl mx-auto p-6 space-y-8">
     <div>
-      <h1 class="text-xl font-bold text-text">Settings</h1>
-      <p class="text-sm text-text-muted mt-1">Configure AI providers and agent models.</p>
+      <h1 class="text-xl font-bold text-foreground">Settings</h1>
+      <p class="text-sm text-muted-foreground mt-1">Configure AI providers and agent models.</p>
     </div>
 
     <!-- Provider API Keys -->
     <section class="space-y-4">
-      <h2 class="text-sm font-semibold text-text uppercase tracking-wider">Provider API Keys</h2>
-      <p class="text-xs text-text-muted">Keys are stored locally and sent to the server on save.</p>
+      <h2 class="text-sm font-semibold text-foreground uppercase tracking-wider">Provider API Keys</h2>
+      <p class="text-xs text-muted-foreground">Keys are stored locally and sent to the server on save.</p>
 
       {#each builtinProviders as provider}
-        <div class="p-4 rounded-lg border border-border bg-surface-light">
+        <div class="p-4 rounded-xl border border-border bg-card">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-text capitalize">{provider}</span>
+              <span class="text-sm font-medium text-foreground capitalize">{provider}</span>
               {#if testResults[provider]}
-                <Badge variant={testResults[provider].ok ? 'success' : 'danger'}>
+                <Badge variant={testResults[provider].ok ? 'default' : 'destructive'}>
                   {testResults[provider].ok ? 'Connected' : 'Failed'}
                 </Badge>
               {/if}
             </div>
             <Button
               variant="ghost"
-              size="sm"
-              loading={testingProvider === provider}
               onclick={() => handleTestProvider(provider)}
             >
               Test
             </Button>
           </div>
-          <input
+          <Input
             type="password"
             bind:value={providerKeys[provider]}
             placeholder={`${provider} API key`}
-            class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+            class="font-mono"
           />
         </div>
       {/each}
@@ -307,60 +309,59 @@
     <section class="space-y-4">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-sm font-semibold text-text uppercase tracking-wider">Custom Providers</h2>
-          <p class="text-xs text-text-muted mt-1">Add OpenAI-compatible API endpoints.</p>
+          <h2 class="text-sm font-semibold text-foreground uppercase tracking-wider">Custom Providers</h2>
+          <p class="text-xs text-muted-foreground mt-1">Add OpenAI-compatible API endpoints.</p>
         </div>
-        <Button variant="ghost" size="sm" onclick={() => (showAddCustom = !showAddCustom)}>
+        <Button variant="ghost" onclick={() => (showAddCustom = !showAddCustom)}>
           {showAddCustom ? 'Cancel' : '+ Add Provider'}
         </Button>
       </div>
 
       <!-- Add Custom Provider Form -->
       {#if showAddCustom}
-        <div class="p-4 rounded-lg border border-primary/30 bg-surface-light space-y-3">
-          <h3 class="text-sm font-medium text-text">New Custom Provider</h3>
+        <div class="p-4 rounded-xl border border-primary/30 bg-card space-y-3">
+          <h3 class="text-sm font-medium text-foreground">New Custom Provider</h3>
 
           {#if customError}
-            <div class="px-3 py-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <div class="px-3 py-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
               {customError}
             </div>
           {/if}
 
           <div>
-            <label for="custom-name" class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Provider Name</label>
-            <input
+            <label for="custom-name" class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Provider Name</label>
+            <Input
               id="custom-name"
               type="text"
               bind:value={customName}
               placeholder="e.g. enowX Labs"
-              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary"
             />
           </div>
 
           <div>
-            <label for="custom-baseurl" class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Base URL</label>
-            <input
+            <label for="custom-baseurl" class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Base URL</label>
+            <Input
               id="custom-baseurl"
               type="text"
               bind:value={customBaseURL}
               placeholder="https://api.example.com/v1"
-              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+              class="font-mono"
             />
           </div>
 
           <div>
-            <label for="custom-apikey" class="block text-[10px] font-medium text-text-muted mb-1 uppercase">API Key</label>
-            <input
+            <label for="custom-apikey" class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">API Key</label>
+            <Input
               id="custom-apikey"
               type="password"
               bind:value={customApiKey}
               placeholder="API key (optional)"
-              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+              class="font-mono"
             />
           </div>
 
           <div class="flex justify-end">
-            <Button variant="primary" size="sm" loading={customSaving} onclick={handleAddCustomProvider}>
+            <Button variant="default" onclick={handleAddCustomProvider}>
               Add Provider
             </Button>
           </div>
@@ -369,18 +370,18 @@
 
       <!-- Existing Custom Providers -->
       {#each customProviders as provider}
-        <div class="p-4 rounded-lg border border-border bg-surface-light">
+        <div class="p-4 rounded-xl border border-border bg-card">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-text">{provider.name}</span>
+              <span class="text-sm font-medium text-foreground">{provider.name}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">custom</span>
               {#if models[provider.id]?.length}
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-lighter text-text-muted">
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
                   {models[provider.id].length} models
                 </span>
               {/if}
               {#if testResults[provider.id]}
-                <Badge variant={testResults[provider.id].ok ? 'success' : 'danger'}>
+                <Badge variant={testResults[provider.id].ok ? 'default' : 'destructive'}>
                   {testResults[provider.id].ok ? 'Connected' : 'Failed'}
                 </Badge>
               {/if}
@@ -388,43 +389,40 @@
             <div class="flex items-center gap-1">
               <Button
                 variant="ghost"
-                size="sm"
-                loading={fetchingModels === provider.id}
                 onclick={() => fetchCustomModels(provider.id)}
               >
                 Fetch Models
               </Button>
               <Button
                 variant="ghost"
-                size="sm"
-                loading={testingProvider === provider.id}
                 onclick={() => handleTestProvider(provider.id)}
               >
                 Test
               </Button>
-              <button
+              <Button
+                variant="ghost"
+                class="text-destructive hover:text-destructive"
                 onclick={() => handleDeleteCustomProvider(provider.id)}
-                class="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
               >
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
           <div class="space-y-2">
-            <div class="text-xs text-text-muted font-mono truncate">{provider.baseURL}</div>
-            <input
+            <div class="text-xs text-muted-foreground font-mono truncate">{provider.baseURL}</div>
+            <Input
               type="password"
               bind:value={provider.apiKey}
               placeholder="API key"
-              class="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+              class="font-mono"
             />
           </div>
         </div>
       {/each}
 
       {#if customProviders.length === 0 && !showAddCustom}
-        <div class="p-4 rounded-lg border border-border/50 bg-surface-light/50 text-center">
-          <p class="text-xs text-text-muted">No custom providers configured.</p>
+        <div class="p-4 rounded-xl border border-border/50 bg-card/50 text-center">
+          <p class="text-xs text-muted-foreground">No custom providers configured.</p>
         </div>
       {/if}
     </section>
@@ -433,15 +431,15 @@
     {#if config}
       <section class="space-y-6">
         <div>
-          <h2 class="text-sm font-semibold text-text uppercase tracking-wider">Agent Models</h2>
-          <p class="text-xs text-text-muted mt-1">Configure which model each agent uses. Agents are routed automatically based on task labels.</p>
+          <h2 class="text-sm font-semibold text-foreground uppercase tracking-wider">Agent Models</h2>
+          <p class="text-xs text-muted-foreground mt-1">Configure which model each agent uses. Agents are routed automatically based on task labels.</p>
         </div>
 
         {#each ['core', 'specialist', 'quality'] as category}
           {@const agents = getAgentsByCategory(category)}
           {#if agents.length > 0}
             <div class="space-y-3">
-              <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider flex items-center gap-2">
+              <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
                 {#if category === 'core'}
                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 {:else if category === 'specialist'}
@@ -455,23 +453,23 @@
               {#each agents as agentMeta}
                 {@const agent = config.agents[agentMeta.key]}
                 {#if agent}
-                  <div class="p-4 rounded-lg border border-border bg-surface-light">
+                  <div class="p-4 rounded-xl border border-border bg-card">
                     <div class="flex items-center justify-between mb-3">
                       <div>
-                        <h4 class="text-sm font-medium text-text">{agentMeta.label} Agent</h4>
-                        <p class="text-[10px] text-text-muted">{agentMeta.description}</p>
+                        <h4 class="text-sm font-medium text-foreground">{agentMeta.label} Agent</h4>
+                        <p class="text-[10px] text-muted-foreground">{agentMeta.description}</p>
                       </div>
-                      <Badge variant={category === 'core' ? 'primary' : category === 'specialist' ? 'info' : 'default'}>
+                      <Badge variant={category === 'core' ? 'default' : category === 'specialist' ? 'secondary' : 'outline'}>
                         {agentMeta.key}
                       </Badge>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
                       <div>
-                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Provider</label>
+                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Provider</label>
                         <select
                           bind:value={agent.provider}
-                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                          class="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         >
                           {#each getAllProviderKeys() as p}
                             <option value={p}>{getProviderDisplayName(p)}</option>
@@ -480,11 +478,11 @@
                       </div>
 
                       <div>
-                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Model</label>
+                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Model</label>
                         {#if models[agent.provider] && models[agent.provider].length > 0}
                           <select
                             bind:value={agent.model}
-                            class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
+                            class="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           >
                             {#each models[agent.provider] as model}
                               <option value={model.id}>{model.name}</option>
@@ -494,36 +492,34 @@
                             {/if}
                           </select>
                         {:else}
-                          <input
+                          <Input
                             type="text"
                             bind:value={agent.model}
                             placeholder="Model ID (e.g. gpt-4o)"
-                            class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted/50 focus:outline-none focus:border-primary font-mono"
+                            class="font-mono"
                           />
                         {/if}
                       </div>
 
                       <div>
-                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Temperature</label>
-                        <input
+                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Temperature</label>
+                        <Input
                           type="number"
                           bind:value={agent.temperature}
                           min="0"
                           max="2"
                           step="0.1"
-                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
                         />
                       </div>
 
                       <div>
-                        <label class="block text-[10px] font-medium text-text-muted mb-1 uppercase">Max Tokens</label>
-                        <input
+                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Max Tokens</label>
+                        <Input
                           type="number"
                           bind:value={agent.maxOutputTokens}
                           min="100"
                           max="128000"
                           step="100"
-                          class="w-full px-2 py-1.5 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:border-primary"
                         />
                       </div>
                     </div>
@@ -539,9 +535,9 @@
     <!-- Save -->
     <div class="flex items-center justify-end gap-3 pb-8">
       {#if saveMessage}
-        <span class="text-xs {saveMessage.includes('Failed') ? 'text-red-400' : 'text-green-400'}">{saveMessage}</span>
+        <span class="text-xs {saveMessage.includes('Failed') ? 'text-destructive' : 'text-chart-1'}">{saveMessage}</span>
       {/if}
-      <Button variant="primary" loading={saving} onclick={handleSave}>
+      <Button variant="default" onclick={handleSave}>
         Save Settings
       </Button>
     </div>

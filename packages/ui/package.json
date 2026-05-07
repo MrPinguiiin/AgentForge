@@ -13,18 +13,24 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "bits-ui": "^2.18.1",
+    "clsx": "^2.1.1",
     "diff2html": "^3.4.48",
-    "svelte-dnd-action": "^0.9.52"
+    "svelte-dnd-action": "^0.9.52",
+    "tailwind-merge": "^3.5.0",
+    "tailwind-variants": "^3.2.2"
   },
   "devDependencies": {
+    "@internationalized/date": "^3.12.0",
+    "@lucide/svelte": "^1.14.0",
     "@sveltejs/adapter-static": "^3.0.0",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
-    "svelte": "^5.0.0",
-    "tailwindcss": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
-    "vite": "^6.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
-    "svelte-check": "^4.0.0"
+    "vite": "^6.0.0"
   }
 }

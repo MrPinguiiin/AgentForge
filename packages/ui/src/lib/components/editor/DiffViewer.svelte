@@ -42,7 +42,7 @@
   const lineColors: Record<string, string> = {
     add: 'bg-green-500/10 text-green-400',
     remove: 'bg-red-500/10 text-red-400',
-    context: 'text-text-muted',
+    context: 'text-muted-foreground',
     header: 'bg-blue-500/10 text-blue-400',
   };
 
@@ -56,17 +56,17 @@
 
 <div class="rounded-lg border border-border overflow-hidden">
   {#if filePath}
-    <div class="px-3 py-1.5 bg-surface-lighter border-b border-border text-xs text-text-muted font-mono">
+    <div class="px-3 py-1.5 bg-muted border-b border-border text-xs text-muted-foreground font-mono">
       {filePath}
     </div>
   {/if}
 
   <div class="overflow-x-auto max-h-96">
-    <pre class="text-[11px] font-mono leading-5">{#each parsedLines as line}<div class="px-3 {lineColors[line.type]}"><span class="select-none text-text-muted/50 mr-2">{linePrefix[line.type]}</span>{line.content}</div>{/each}</pre>
+    <pre class="text-[11px] font-mono leading-5">{#each parsedLines as line}<div class="px-3 {lineColors[line.type]}"><span class="select-none text-muted-foreground/50 mr-2">{linePrefix[line.type]}</span>{line.content}</div>{/each}</pre>
   </div>
 
   {#if parsedLines.length === 0}
-    <div class="px-3 py-4 text-xs text-text-muted text-center">
+    <div class="px-3 py-4 text-xs text-muted-foreground text-center">
       No diff content
     </div>
   {/if}

@@ -114,12 +114,12 @@ export interface ColumnConfig {
 }
 
 export const COLUMN_CONFIG: ColumnConfig[] = [
-  { id: 'backlog', title: 'Backlog', dotColor: 'bg-secondary', textColor: 'text-secondary', icon: 'inventory_2' },
-  { id: 'ready', title: 'Ready For Agent', dotColor: 'bg-primary-fixed-dim', textColor: 'text-on-surface', icon: 'bolt' },
+  { id: 'backlog', title: 'Backlog', dotColor: 'bg-muted-foreground', textColor: 'text-muted-foreground', icon: 'inventory_2' },
+  { id: 'ready', title: 'Ready For Agent', dotColor: 'bg-primary', textColor: 'text-foreground', icon: 'bolt' },
   { id: 'in_progress', title: 'In Progress', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'sync', highlight: true },
-  { id: 'needs_human', title: 'Needs Human', dotColor: 'bg-error', textColor: 'text-error', icon: 'warning' },
-  { id: 'in_review', title: 'Review', dotColor: 'bg-[#f59e0b]', textColor: 'text-on-surface', icon: 'rate_review' },
-  { id: 'qa', title: 'QA', dotColor: 'bg-tertiary', textColor: 'text-on-surface', icon: 'bug_report' },
-  { id: 'done', title: 'Done', dotColor: 'bg-tertiary', textColor: 'text-tertiary', icon: 'check_circle' },
-  { id: 'failed', title: 'Failed', dotColor: 'bg-error', textColor: 'text-error', icon: 'error' },
+  { id: 'needs_human', title: 'Needs Human', dotColor: 'bg-destructive', textColor: 'text-destructive', icon: 'warning' },
+  { id: 'in_review', title: 'Review', dotColor: 'bg-chart-1', textColor: 'text-foreground', icon: 'rate_review' },
+  { id: 'qa', title: 'QA', dotColor: 'bg-chart-2', textColor: 'text-foreground', icon: 'bug_report' },
+  { id: 'done', title: 'Done', dotColor: 'bg-chart-1', textColor: 'text-chart-1', icon: 'check_circle' },
+  { id: 'failed', title: 'Failed', dotColor: 'bg-destructive', textColor: 'text-destructive', icon: 'error' },
 ];
