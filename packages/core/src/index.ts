@@ -135,7 +135,7 @@ export type {
 // Worker Infrastructure
 export { JobQueue } from "./worker/job-queue.js";
 export type { JobData, JobResult, QueueEvents, JobProcessor } from "./worker/job-queue.js";
-export { OpenCodeRunner, OpenCodeServer, parsePlanningJson } from "./worker/opencode-runner.js";
+export { OpenCodeRunner, OpenCodeServer, OpenCodeServerPool, parsePlanningJson } from "./worker/opencode-runner.js";
 export type { OpenCodeRunOptions, OpenCodeRunResult, RunnerEvents, OpenCodeServerConfig } from "./worker/opencode-runner.js";
 export { BranchManager } from "./worker/branch-manager.js";
 export type { BranchInfo } from "./worker/branch-manager.js";

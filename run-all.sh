@@ -14,12 +14,21 @@ PIDS=()
 cleanup() {
   echo ""
   echo "[run-all] stopping services..."
+
+  # Kill child services
   for pid in "${PIDS[@]}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
     fi
   done
+
+  # Kill any TaskHive-managed opencode serve instances
+  pkill -f "TASKHIVE_OPENCODE_SERVER=true" >/dev/null 2>&1 || true
+  # Kill any opencode run --attach spawned by TaskHive
+  pkill -f "opencode run --attach" >/dev/null 2>&1 || true
+
   wait >/dev/null 2>&1 || true
+  echo "[run-all] stopped."
 }
 
 trap cleanup EXIT INT TERM
@@ -45,10 +54,20 @@ start_service() {
 require_command bun
 require_command "$OPENCODE_BINARY"
 
-echo "[run-all] root: $ROOT_DIR"
+# ── Cleanup stale processes from previous runs ──
+echo "[run-all] cleaning up stale processes..."
+pkill -f "TASKHIVE_OPENCODE_SERVER=true" >/dev/null 2>&1 || true
+pkill -f "opencode run --attach" >/dev/null 2>&1 || true
+# Free TaskHive opencode serve ports (4200-4220 range)
+for port in $(seq "$OPENCODE_SERVER_PORT" $((OPENCODE_SERVER_PORT + 20))); do
+  fuser -k "$port/tcp" >/dev/null 2>&1 || true
+done
+sleep 1
+
+echo "[run-all] root:   $ROOT_DIR"
 echo "[run-all] server: http://localhost:${AI_CODER_PORT}"
 echo "[run-all] ui:     http://localhost:5173"
-echo "[run-all] opencode server port: ${OPENCODE_SERVER_PORT}"
+echo "[run-all] opencode base port: ${OPENCODE_SERVER_PORT}"
 echo "[run-all] opencode model: ${OPENCODE_MODEL}"
 echo ""
 

@@ -1,18 +1,17 @@
 /**
- * OpenCode HTTP API Runner
+ * OpenCode Runner — SDK-based
  *
- * Uses the OpenCode Server HTTP API instead of spawning subprocesses.
- * This avoids the "Session not found" error that occurs when multiple
- * OpenCode instances try to access the same database.
+ * Uses @opencode-ai/sdk to create per-project OpenCode instances
+ * and send prompts via the session API.
  *
- * Architecture:
- * 1. TaskHive starts `opencode serve` on a dedicated port
- * 2. Runner creates sessions via POST /session
- * 3. Runner sends prompts via POST /session/:id/message
- * 4. Runner can abort via POST /session/:id/abort
+ * This replaces the CLI subprocess approach which had issues with:
+ * - "Session not found" errors
+ * - Wrong project context (worktree scoping)
+ * - Stuck processes
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { execSync } from "node:child_process";
 import EventEmitter from "eventemitter3";
 import { log } from "./logger.js";
 
@@ -25,11 +24,11 @@ export interface OpenCodeRunOptions {
   agent: string;
   /** The prompt to send */
   prompt: string;
-  /** Timeout in milliseconds (default: 5 minutes) */
+  /** Timeout in milliseconds (default: 15 minutes) */
   timeout?: number;
-  /** Environment variables to pass (unused in HTTP mode) */
+  /** Environment variables (unused in SDK mode) */
   env?: Record<string, string>;
-  /** Model to use, e.g. 9router/cx/gpt-5.5 */
+  /** Model in OpenCode format: provider/model (e.g. "9router/cx/gpt-5.5") */
   model?: string;
 }
 
@@ -40,8 +39,6 @@ export interface OpenCodeRunResult {
   durationMs: number;
   timedOut: boolean;
   killed: boolean;
-  /** OpenCode session ID (for debugging) */
-  sessionId?: string;
 }
 
 export interface RunnerEvents {
@@ -50,233 +47,268 @@ export interface RunnerEvents {
   exit: (result: OpenCodeRunResult) => void;
 }
 
-// ── OpenCode Server Manager ──────────────────────
+// ── Server config ──────────────────────
 
 export interface OpenCodeServerConfig {
-  /** Port for the OpenCode server (default: 4200) */
-  port?: number;
+  /** Base port for per-project servers */
+  basePort?: number;
   /** Hostname (default: 127.0.0.1) */
   hostname?: string;
-  /** Path to opencode binary */
+  /** Path to opencode binary (unused in SDK mode) */
   binaryPath?: string;
-  /** Working directory for the server */
-  cwd?: string;
-  /** Default model for attached runs */
+  /** Default model (OpenCode format: provider/model) */
   model?: string;
 }
 
-/**
- * Manages an `opencode serve` process.
- * Starts on demand, stops on cleanup.
- */
-export class OpenCodeServer {
-  private process: ChildProcess | null = null;
-  private port: number;
+// ── Per-project SDK instance pool ──────────────────────
+
+interface ManagedInstance {
+  client: ReturnType<typeof createOpencodeClient>;
+  close: () => void;
+  port: number;
+  projectPath: string;
+}
+
+export class OpenCodeServerPool {
+  private instances = new Map<string, ManagedInstance>();
+  private startPromises = new Map<string, Promise<ManagedInstance>>();
+  private nextPort: number;
   private hostname: string;
-  private binaryPath: string;
-  private cwd: string;
-  private model?: string;
-  private ready = false;
-  private readyPromise: Promise<void> | null = null;
+  private _model?: string;
 
   constructor(config?: OpenCodeServerConfig) {
-    this.port = config?.port ?? 4200;
+    this.nextPort = config?.basePort ?? 4200;
     this.hostname = config?.hostname ?? "127.0.0.1";
-    this.binaryPath = config?.binaryPath ?? "opencode";
-    this.cwd = config?.cwd ?? process.cwd();
-    this.model = config?.model;
-  }
-
-  get baseUrl(): string {
-    return `http://${this.hostname}:${this.port}`;
-  }
-
-  get binary(): string {
-    return this.binaryPath;
+    this._model = config?.model;
   }
 
   get defaultModel(): string | undefined {
-    return this.model;
-  }
-
-  get isRunning(): boolean {
-    return this.ready;
+    return this._model;
   }
 
   /**
-   * Start the OpenCode server.
-   * Waits until the server is healthy before returning.
+   * Get or create an OpenCode SDK client for the given project path.
    */
-  async start(): Promise<void> {
-    if (this.ready && await this.healthCheck()) return;
-
-    // Previous health state/promise may be stale after server exit or dev reload.
-    this.ready = false;
-    if (this.process?.killed) this.process = null;
-
-    if (this.readyPromise) return this.readyPromise;
-
-    this.readyPromise = this._start().finally(() => {
-      this.readyPromise = null;
-    });
-    return this.readyPromise;
-  }
-
-  private async _start(): Promise<void> {
-    // First check if something is already listening on our port
-    const alreadyRunning = await this.healthCheck();
-    if (alreadyRunning) {
-      log.info("OPENCODE-SERVER", `Server already running on ${this.baseUrl}`);
-      this.ready = true;
-      return;
+  async getClient(projectPath: string): Promise<ReturnType<typeof createOpencodeClient>> {
+    // Already running?
+    const existing = this.instances.get(projectPath);
+    if (existing) {
+      try {
+        const res = await fetch(`http://${this.hostname}:${existing.port}/global/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) return existing.client;
+      } catch { /* stale, restart */ }
+      this.stopInstance(projectPath);
     }
 
-    log.info("OPENCODE-SERVER", `Starting opencode serve on port ${this.port}...`);
-
-    this.process = spawn(
-      this.binaryPath,
-      ["serve", "--port", String(this.port), "--hostname", this.hostname],
-      {
-        cwd: this.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          // Don't interfere with our own server
-          TASKHIVE_OPENCODE_SERVER: "true",
-          // Internal localhost server must be accessible by TaskHive without Basic Auth.
-          OPENCODE_SERVER_PASSWORD: "",
-          OPENCODE_SERVER_USERNAME: "",
-        },
-      },
-    );
-
-    // Log server output
-    this.process.stdout?.on("data", (data: Buffer) => {
-      const msg = data.toString().trim();
-      if (msg) log.info("OPENCODE-SERVER", `stdout: ${msg}`);
-    });
-
-    this.process.stderr?.on("data", (data: Buffer) => {
-      const msg = data.toString().trim();
-      if (msg) log.warn("OPENCODE-SERVER", `stderr: ${msg}`);
-    });
-
-    this.process.on("error", (err) => {
-      log.error("OPENCODE-SERVER", `Process error: ${err.message}`);
-      this.ready = false;
-    });
-
-    this.process.on("close", (code) => {
-      log.info("OPENCODE-SERVER", `Process exited with code ${code}`);
-      this.ready = false;
-      this.process = null;
-    });
-
-    // Wait for server to become healthy (poll every 500ms, max 30s)
-    const maxWait = 30_000;
-    const pollInterval = 500;
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWait) {
-      await new Promise((r) => setTimeout(r, pollInterval));
-
-      if (this.process?.killed) {
-        throw new Error("OpenCode server process died during startup");
-      }
-
-      const healthy = await this.healthCheck();
-      if (healthy) {
-        this.ready = true;
-        log.info("OPENCODE-SERVER", `Server ready on ${this.baseUrl} (took ${Date.now() - startTime}ms)`);
-        return;
-      }
+    // Already starting?
+    const pending = this.startPromises.get(projectPath);
+    if (pending) {
+      const inst = await pending;
+      return inst.client;
     }
 
-    // Timeout - kill and throw
-    this.stop();
-    throw new Error(`OpenCode server failed to start within ${maxWait}ms`);
-  }
-
-  /**
-   * Check if the server is healthy
-   */
-  private async healthCheck(): Promise<boolean> {
+    const promise = this.startInstance(projectPath);
+    this.startPromises.set(projectPath, promise);
     try {
-      const res = await fetch(`${this.baseUrl}/global/health`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { healthy?: boolean };
-        return data.healthy === true;
-      }
-      return false;
-    } catch {
-      return false;
+      const inst = await promise;
+      return inst.client;
+    } finally {
+      this.startPromises.delete(projectPath);
     }
   }
 
-  /**
-   * Stop the OpenCode server
-   */
-  stop(): void {
-    if (this.process && !this.process.killed) {
-      log.info("OPENCODE-SERVER", "Stopping server...");
-      this.process.kill("SIGTERM");
-      // Force kill after 5 seconds
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill("SIGKILL");
-        }
-      }, 5000);
+  private ensureGitRepo(projectPath: string): void {
+    try {
+      execSync("git rev-parse --is-inside-work-tree", { cwd: projectPath, stdio: "pipe" });
+    } catch {
+      log.info("OPENCODE-SERVER", `Initializing git in ${projectPath} (required by OpenCode for project scoping)`);
+      execSync("git init", { cwd: projectPath, stdio: "pipe" });
     }
-    this.ready = false;
-    this.process = null;
-    this.readyPromise = null;
+  }
+
+  private async startInstance(projectPath: string): Promise<ManagedInstance> {
+    this.ensureGitRepo(projectPath);
+
+    const port = this.nextPort++;
+    log.info("OPENCODE-SERVER", `Starting OpenCode SDK instance on port ${port} for ${projectPath}`);
+
+    // Change to project directory so OpenCode scopes to it
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(projectPath);
+
+      const opencode = await createOpencode({
+        hostname: this.hostname,
+        port,
+        timeout: 30_000,
+      });
+
+      const inst: ManagedInstance = {
+        client: opencode.client,
+        close: () => opencode.server.close(),
+        port,
+        projectPath,
+      };
+
+      this.instances.set(projectPath, inst);
+      log.info("OPENCODE-SERVER", `[${port}] Ready for ${projectPath}`);
+      return inst;
+    } finally {
+      process.chdir(originalCwd);
+    }
+  }
+
+  private stopInstance(projectPath: string): void {
+    const inst = this.instances.get(projectPath);
+    if (inst) {
+      try { inst.close(); } catch { /* best effort */ }
+      this.instances.delete(projectPath);
+    }
+  }
+
+  stopAll(): void {
+    for (const [path] of this.instances) {
+      this.stopInstance(path);
+    }
   }
 }
 
-// ── OpenCode Runner (HTTP API) ──────────────────────
+// ── Backward-compat wrapper ──────────────────────
 
-/**
- * Runs prompts against the OpenCode HTTP API.
- * Creates a session, sends a message, and captures the response.
- */
+export class OpenCodeServer {
+  private pool: OpenCodeServerPool;
+
+  constructor(config?: OpenCodeServerConfig) {
+    this.pool = new OpenCodeServerPool(config);
+  }
+
+  get defaultModel(): string | undefined { return this.pool.defaultModel; }
+  get isRunning(): boolean { return true; }
+  get baseUrl(): string { return ""; }
+  get binary(): string { return "opencode"; }
+
+  async start(): Promise<void> { /* pool starts on demand */ }
+  stop(): void { this.pool.stopAll(); }
+  getPool(): OpenCodeServerPool { return this.pool; }
+}
+
+// ── OpenCode Runner (SDK-based) ──────────────────────
+
 export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
-  private server: OpenCodeServer;
-  private process: ChildProcess | null = null;
-  private activeSessionId: string | null = null;
+  private pool: OpenCodeServerPool;
   private aborted = false;
+  private activeAbort: (() => Promise<void>) | null = null;
 
   constructor(server: OpenCodeServer) {
     super();
-    this.server = server;
+    this.pool = server.getPool();
   }
 
-  /**
-   * Run a prompt against OpenCode via `opencode run --attach`.
-   * Direct POST /session/:id/message can hang on OpenCode 1.14.40, while the
-   * CLI attach path uses the same server API but handles event streaming correctly.
-   */
   async run(options: OpenCodeRunOptions): Promise<OpenCodeRunResult> {
-    const { cwd, agent, prompt, timeout = 5 * 60 * 1000, model } = options;
-
+    const { cwd, agent, prompt, timeout = 15 * 60 * 1000, model } = options;
     const startTime = Date.now();
     this.aborted = false;
 
     try {
-      // Ensure server is running
-      if (!this.server.isRunning) {
-        await this.server.start();
+      const client = await this.pool.getClient(cwd);
+
+      // 1. Create session
+      log.info("RUNNER", `Creating session for agent=${agent} in ${cwd}`);
+      const sessionRes = await client.session.create({
+        body: { title: `TaskHive: ${agent}` },
+      });
+
+      const sessionId = sessionRes.data?.id;
+      if (!sessionId) {
+        throw new Error(`Failed to create session: ${JSON.stringify(sessionRes.error)}`);
       }
 
-      return await this.runAttachedCli({ cwd, agent, prompt, timeout, startTime, model });
+      log.info("RUNNER", `Session ${sessionId} created, sending prompt (${prompt.length} chars)`);
+
+      // Set up abort handler
+      this.activeAbort = async () => {
+        try {
+          await client.session.abort({ path: { id: sessionId } });
+          log.info("RUNNER", `Aborted session ${sessionId}`);
+        } catch { /* best effort */ }
+      };
+
+      // 2. Send prompt with timeout
+      const resolvedModel = model ?? this.pool.defaultModel;
+      const modelConfig = resolvedModel ? this.parseModel(resolvedModel) : undefined;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        log.warn("RUNNER", `Timeout after ${timeout}ms, aborting session ${sessionId}`);
+        controller.abort();
+        this.abort();
+      }, timeout);
+
+      try {
+        const result = await client.session.prompt({
+          path: { id: sessionId },
+          body: {
+            parts: [{ type: "text", text: prompt }],
+            agent,
+            ...(modelConfig ? { model: modelConfig } : {}),
+          },
+        });
+
+        clearTimeout(timeoutId);
+        this.activeAbort = null;
+
+        // Extract text from response parts
+        const parts = result.data?.parts ?? [];
+        const textContent = parts
+          .filter((p: any) => p.type === "text")
+          .map((p: any) => p.content ?? p.text ?? "")
+          .filter(Boolean)
+          .join("\n");
+
+        const durationMs = Date.now() - startTime;
+        log.info("RUNNER", `Session ${sessionId} completed (${durationMs}ms, ${textContent.length} chars)`);
+
+        this.emit("stdout", textContent);
+
+        const runResult: OpenCodeRunResult = {
+          exitCode: 0,
+          stdout: textContent,
+          stderr: "",
+          durationMs,
+          timedOut: false,
+          killed: this.aborted,
+        };
+        this.emit("exit", runResult);
+        return runResult;
+
+      } catch (err) {
+        clearTimeout(timeoutId);
+        this.activeAbort = null;
+
+        if (this.aborted || (err instanceof Error && err.name === "AbortError")) {
+          const durationMs = Date.now() - startTime;
+          const runResult: OpenCodeRunResult = {
+            exitCode: 1,
+            stdout: "",
+            stderr: "Aborted (timeout or manual)",
+            durationMs,
+            timedOut: !this.aborted,
+            killed: this.aborted,
+          };
+          this.emit("exit", runResult);
+          return runResult;
+        }
+        throw err;
+      }
+
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const errorMsg = err instanceof Error ? err.message : String(err);
-
       log.error("RUNNER", `Error: ${errorMsg}`);
 
-      const result: OpenCodeRunResult = {
+      const runResult: OpenCodeRunResult = {
         exitCode: 1,
         stdout: "",
         stderr: errorMsg,
@@ -284,183 +316,52 @@ export class OpenCodeRunner extends EventEmitter<RunnerEvents> {
         timedOut: false,
         killed: this.aborted,
       };
-
-      this.activeSessionId = null;
-      this.emit("exit", result);
-      return result;
+      this.emit("exit", runResult);
+      return runResult;
     }
   }
 
-  private async runAttachedCli(options: {
-    cwd: string;
-    agent: string;
-    prompt: string;
-    timeout: number;
-    startTime: number;
-    model?: string;
-  }): Promise<OpenCodeRunResult> {
-    const { cwd, agent, prompt, timeout, startTime } = options;
-
-    return new Promise<OpenCodeRunResult>((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-
-      const args = [
-        "run",
-        "--attach",
-        this.server.baseUrl,
-        "--dir",
-        cwd,
-        "--agent",
-        agent,
-        "--dangerously-skip-permissions",
-      ];
-
-      const model = options.model ?? this.server.defaultModel;
-      if (model) args.push("--model", model);
-
-      args.push(prompt);
-
-      log.info("RUNNER", `Spawning opencode ${args.slice(0, 7).join(" ")} <prompt:${prompt.length}>`);
-
-      this.process = spawn(this.server.binary, args, {
-        cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          TASKHIVE_RUN: "true",
-          CI: "true",
-          TERM: "dumb",
-        },
-      });
-
-      const timeoutId = setTimeout(() => {
-        timedOut = true;
-        this.kill();
-      }, timeout);
-
-      this.process.stdout?.on("data", (data: Buffer) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        this.emit("stdout", chunk);
-      });
-
-      this.process.stderr?.on("data", (data: Buffer) => {
-        const chunk = data.toString();
-        stderr += chunk;
-        this.emit("stderr", chunk);
-      });
-
-      this.process.on("close", (exitCode) => {
-        clearTimeout(timeoutId);
-        const result: OpenCodeRunResult = {
-          exitCode: exitCode ?? 1,
-          stdout,
-          stderr,
-          durationMs: Date.now() - startTime,
-          timedOut,
-          killed: this.aborted,
-        };
-        this.process = null;
-        this.emit("exit", result);
-        resolve(result);
-      });
-
-      this.process.on("error", (err) => {
-        clearTimeout(timeoutId);
-        const result: OpenCodeRunResult = {
-          exitCode: 1,
-          stdout,
-          stderr: `${stderr}\nProcess error: ${err.message}`,
-          durationMs: Date.now() - startTime,
-          timedOut,
-          killed: true,
-        };
-        this.process = null;
-        this.emit("exit", result);
-        resolve(result);
-      });
-    });
+  private parseModel(model: string): { providerID: string; modelID: string } | undefined {
+    // Format: "provider/model" e.g. "9router/cx/gpt-5.5"
+    const slashIdx = model.indexOf("/");
+    if (slashIdx === -1) return undefined;
+    return {
+      providerID: model.slice(0, slashIdx),
+      modelID: model.slice(slashIdx + 1),
+    };
   }
 
-  /**
-   * Abort the current session
-   */
   async abort(): Promise<void> {
     this.aborted = true;
-    if (this.process && !this.process.killed) {
-      this.process.kill("SIGTERM");
-      setTimeout(() => {
-        if (this.process && !this.process.killed) {
-          this.process.kill("SIGKILL");
-        }
-      }, 5000);
-    }
-    if (this.activeSessionId && this.server.isRunning) {
-      try {
-        await fetch(`${this.server.baseUrl}/session/${this.activeSessionId}/abort`, {
-          method: "POST",
-          signal: AbortSignal.timeout(5000),
-        });
-        log.info("RUNNER", `Aborted session ${this.activeSessionId}`);
-      } catch {
-        // Best effort
-      }
+    if (this.activeAbort) {
+      await this.activeAbort();
+      this.activeAbort = null;
     }
   }
 
-  /**
-   * Kill = abort (backward compat)
-   */
-  kill(): void {
-    this.abort();
-  }
+  kill(): void { this.abort(); }
 
-  /**
-   * Check if a request is currently running
-   */
   get isRunning(): boolean {
-    return this.activeSessionId !== null || (this.process !== null && !this.process.killed);
+    return this.activeAbort !== null;
   }
 }
 
 // ── Planning JSON Parser ──────────────────────
 
-/**
- * Parse planning JSON from OpenCode output.
- * OpenCode output may contain extra text around the JSON.
- * Per docs section 23.
- */
 export function parsePlanningJson(stdout: string): Record<string, unknown> {
-  // First try: direct JSON parse
-  try {
-    return JSON.parse(stdout.trim());
-  } catch {
-    // Fallback: find JSON object in output
-  }
+  try { return JSON.parse(stdout.trim()); } catch { /* fallback */ }
 
-  // Try to find a JSON block (possibly wrapped in markdown code fences)
   const codeBlockMatch = stdout.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch {
-      // Continue to next strategy
-    }
+    try { return JSON.parse(codeBlockMatch[1].trim()); } catch { /* next */ }
   }
 
-  // Try to find the outermost JSON object
   const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("No JSON object found in OpenCode output");
-  }
+  if (!jsonMatch) throw new Error("No JSON object found in OpenCode output");
 
   try {
     return JSON.parse(jsonMatch[0]);
   } catch (err) {
-    throw new Error(
-      `Failed to parse JSON from OpenCode output: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw new Error(`Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

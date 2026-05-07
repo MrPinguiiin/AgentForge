@@ -8,8 +8,7 @@
 
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { access, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import * as schema from "../db/schema.js";
 import type { TaskStatus, PlanningResult, RunType, RunStatus } from "../db/schema.js";
@@ -18,6 +17,7 @@ import { OpenCodeRunner, OpenCodeServer, parsePlanningJson } from "./opencode-ru
 import { BranchManager } from "./branch-manager.js";
 import { ResultCollector } from "./result-collector.js";
 import {
+  buildPlanningPrompt,
   buildExecutionPrompt,
   buildReviewPrompt,
   buildQAPrompt,
@@ -94,11 +94,10 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
     this.queue = new JobQueue(db, { concurrency: this.config.concurrency });
     this.collector = new ResultCollector(db);
 
-    // Create OpenCode server manager
+    // Create OpenCode server pool manager (per-project servers)
     this.openCodeServer = new OpenCodeServer({
-      port: this.config.openCodePort,
+      basePort: this.config.openCodePort,
       binaryPath: this.config.openCodeBinary,
-      cwd: this.config.openCodeCwd,
       model: this.config.openCodeModel,
     });
 
@@ -401,228 +400,6 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
     return this.queue.getStats();
   }
 
-  private isSimpleStaticFrontendTask(plan: PlanningResult, title: string): boolean {
-    const text = `${title} ${plan.summary ?? ""} ${plan.acceptance_checklist?.join(" ") ?? ""}`.toLowerCase();
-    return plan.recommended_agent === "frontend" && text.includes("html") && text.includes("css");
-  }
-
-  private async executeStaticHtmlCssTask(projectPath: string, task: {
-    title: string;
-    description?: string | null;
-    acceptanceCriteria?: string | null;
-  }): Promise<{ stdout: string; files: string[] }> {
-    await mkdir(projectPath, { recursive: true });
-
-    const pageTitle = task.title || "Coffee Shop Landing Page";
-    const description = task.description || "Traditional coffee shop landing page";
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${pageTitle}</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header class="hero">
-    <nav class="navbar">
-      <div class="brand">Warung Kopi Tradisi</div>
-      <a href="#menu">Menu</a>
-      <a href="#story">Story</a>
-      <a href="#contact">Contact</a>
-    </nav>
-
-    <section class="hero-content">
-      <p class="eyebrow">Traditional Coffee House</p>
-      <h1>Kopi Nusantara dengan Rasa Rumahan</h1>
-      <p>${description}</p>
-      <a class="cta" href="#menu">Lihat Menu</a>
-    </section>
-  </header>
-
-  <main>
-    <section id="menu" class="section menu">
-      <p class="eyebrow">Signature Menu</p>
-      <h2>Favorit Hari Ini</h2>
-      <div class="cards">
-        <article class="card">
-          <h3>Kopi Tubruk</h3>
-          <p>Kopi hitam klasik dengan aroma kuat dan rasa autentik.</p>
-        </article>
-        <article class="card">
-          <h3>Kopi Susu Gula Aren</h3>
-          <p>Perpaduan kopi, susu, dan gula aren yang lembut.</p>
-        </article>
-        <article class="card">
-          <h3>Pisang Goreng</h3>
-          <p>Camilan hangat pendamping kopi sore.</p>
-        </article>
-      </div>
-    </section>
-
-    <section id="story" class="section story">
-      <div>
-        <p class="eyebrow">Our Story</p>
-        <h2>Hangat, sederhana, dan dekat.</h2>
-      </div>
-      <p>Kami menghadirkan suasana warung kopi tradisional dengan sentuhan modern, tempat untuk berbincang dan menikmati kopi pilihan.</p>
-    </section>
-
-    <section id="contact" class="section contact">
-      <p class="eyebrow">Visit Us</p>
-      <h2>Datang dan nikmati kopi terbaik kami.</h2>
-      <p>Jl. Kopi Tradisi No. 17, Buka setiap hari 08.00 - 22.00.</p>
-    </section>
-  </main>
-</body>
-</html>
-`;
-
-    const css = `:root {
-  color: #2b1d12;
-  background: #f7efe3;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  background: linear-gradient(180deg, #f7efe3 0%, #efe0c8 100%);
-}
-
-.hero {
-  min-height: 100vh;
-  padding: 28px clamp(20px, 6vw, 80px);
-  background: radial-gradient(circle at top right, rgba(174, 108, 45, 0.25), transparent 36%), #3a2618;
-  color: #fff8ec;
-}
-
-.navbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
-.navbar a {
-  color: #f4dec0;
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.brand {
-  margin-right: auto;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-
-.hero-content {
-  max-width: 720px;
-  padding: 18vh 0 8vh;
-}
-
-.eyebrow {
-  color: #c98b4b;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-h1, h2, h3 { margin: 0; line-height: 1.05; }
-
-h1 {
-  font-size: clamp(3rem, 8vw, 6.8rem);
-  margin-bottom: 24px;
-}
-
-h2 { font-size: clamp(2rem, 5vw, 4rem); }
-
-p { font-size: 1.05rem; line-height: 1.75; }
-
-.cta {
-  display: inline-flex;
-  margin-top: 24px;
-  padding: 14px 22px;
-  border-radius: 999px;
-  background: #d69b55;
-  color: #2b1d12;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.section {
-  padding: 96px clamp(20px, 6vw, 80px);
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  margin-top: 32px;
-}
-
-.card {
-  padding: 28px;
-  border: 1px solid rgba(79, 49, 26, 0.15);
-  border-radius: 28px;
-  background: rgba(255, 250, 240, 0.72);
-  box-shadow: 0 20px 60px rgba(58, 38, 24, 0.08);
-}
-
-.story {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
-  background: #fff8ec;
-}
-
-.contact {
-  text-align: center;
-}
-
-@media (max-width: 760px) {
-  .navbar { flex-wrap: wrap; }
-  .cards, .story { grid-template-columns: 1fr; }
-  .section { padding-block: 64px; }
-}
-`;
-
-    await writeFile(join(projectPath, "index.html"), html, "utf8");
-    await writeFile(join(projectPath, "styles.css"), css, "utf8");
-
-    return {
-      files: ["index.html", "styles.css"],
-      stdout: "Created static coffee shop landing page files: index.html, styles.css",
-    };
-  }
-
-  private async verifyStaticHtmlCssTask(projectPath: string): Promise<{
-    passed: boolean;
-    report: string;
-  }> {
-    const checks = await Promise.all([
-      access(join(projectPath, "index.html")).then(() => true).catch(() => false),
-      access(join(projectPath, "styles.css")).then(() => true).catch(() => false),
-    ]);
-
-    const [hasHtml, hasCss] = checks;
-    const passed = hasHtml && hasCss;
-    const report = JSON.stringify({
-      recommendation: passed ? "pass" : "fail",
-      tests_passed: passed,
-      checks: [
-        { name: "index.html exists", passed: hasHtml },
-        { name: "styles.css exists", passed: hasCss },
-      ],
-      summary: passed
-        ? "Static HTML/CSS landing page files exist."
-        : "Static HTML/CSS landing page is missing required files.",
-    }, null, 2);
-
-    return { passed, report };
-  }
-
   // ===== Job Processors =====
 
   /**
@@ -643,65 +420,75 @@ p { font-size: 1.05rem; line-height: 1.75; }
 
     log.planningStart(taskId, projectPath);
 
+    // Build planning prompt
+    const prompt = buildPlanningPrompt(
+      {
+        title: payload.title as string,
+        description: payload.description as string | null,
+        acceptanceCriteria: payload.acceptanceCriteria as string | null,
+      },
+      { name: projectName, rootPath: projectPath },
+      labels,
+    );
+
+    log.planningPromptBuilt(taskId, prompt.length);
+
+    // Run OpenCode planning agent
+    const runner = new OpenCodeRunner(this.openCodeServer);
+    this.activeRunners.set(taskId, runner);
+    runner.on("stdout", (chunk) => this.emit("planning:streaming", taskId, chunk));
+    log.planningOpenCodeSpawned(taskId, "plan");
+
     try {
-      const startedAt = Date.now();
-      const title = payload.title as string;
-      const description = payload.description as string | null;
-      const acceptanceCriteria = payload.acceptanceCriteria as string | null;
-      const riskLabel = labels.find((label) => label.startsWith("risk:"))?.split(":")[1];
-      const typeLabel = labels.find((label) => label.startsWith("type:"))?.split(":")[1];
-      const recommendedAgent = typeLabel === "backend"
-        ? "backend"
-        : typeLabel === "docs"
-          ? "docs"
-          : typeLabel === "qa"
-            ? "qa"
-            : "frontend";
-      const likelyFiles = recommendedAgent === "frontend"
-        ? ["index.html", "styles.css"]
-        : [];
-      const criteria = acceptanceCriteria
-        ?.split("\n")
-        .map((line) => line.replace(/^[-*]\s*/, "").trim())
-        .filter(Boolean) ?? [];
+      const planModel = await this.resolveModelForAgent("planner");
+      const result = await runner.run({
+        cwd: projectPath,
+        agent: "plan",
+        prompt,
+        timeout: this.config.planningTimeout,
+        model: planModel,
+      });
 
-      const planData: PlanningResult = {
-        summary: title,
-        needs_human: riskLabel === "high",
-        human_questions: [],
-        risk_level: (riskLabel === "high" || riskLabel === "medium" || riskLabel === "low") ? riskLabel : "medium",
-        recommended_agent: recommendedAgent,
-        recommended_subagents: ["review", "qa"],
-        files_to_inspect: [],
-        likely_files_to_change: likelyFiles,
-        implementation_steps: [
-          `Inspect the project structure in ${projectPath}`,
-          description ? `Implement: ${description}` : `Implement: ${title}`,
-          "Create or update the required files according to the acceptance criteria",
-          "Verify the result manually and with available project checks",
-        ],
-        test_plan: [
-          "Verify required files exist",
-          "Open the page in a browser or static preview if applicable",
-          "Confirm acceptance criteria are satisfied",
-        ],
-        acceptance_checklist: criteria.length > 0 ? criteria : ["Implementation matches task request"],
-        routing_decision: {
-          next_column: riskLabel === "high" ? "Needs Human" : "Ready For Agent",
-          reason: riskLabel === "high" ? "high risk requires human approval" : "deterministic planning completed",
-        },
-      };
+      this.activeRunners.delete(taskId);
+      log.planningOpenCodeOutput(taskId, result.stdout.length, result.stderr.length, result.exitCode, result.durationMs);
 
-      const stdout = JSON.stringify(planData, null, 2);
+      // Update run with results
       await this.db.update(schema.taskRuns).set({
-        exitCode: 0,
-        stdout,
-        stderr: "",
-        durationMs: Date.now() - startedAt,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: result.durationMs,
         finishedAt: new Date(),
-        status: "completed",
-        command: "taskhive deterministic planning",
+        status: result.exitCode === 0 ? "completed" : "failed",
+        command: `opencode run --agent plan "<planning prompt>"`,
       }).where(eq(schema.taskRuns.id, runId));
+
+      if (result.exitCode !== 0 || result.timedOut) {
+        const errorMsg = result.timedOut
+          ? "Planning timed out"
+          : `OpenCode exited with code ${result.exitCode}: ${result.stderr}`;
+        log.jobFailed("planning", taskId, errorMsg);
+        await this.updateRunStatus(runId, "failed", errorMsg);
+        await this.updateTaskStatus(taskId, "failed");
+        this.emit("planning:failed", taskId, errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      // Parse planning JSON from AI output
+      let planData: PlanningResult;
+      try {
+        planData = parsePlanningJson(result.stdout) as unknown as PlanningResult;
+      } catch (parseErr) {
+        const errorMsg = `Failed to parse planning output: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;
+        log.planningJsonFailed(taskId, errorMsg);
+        if (result.stdout.length > 0) {
+          log.info("PLANNING", `Raw stdout (first 500 chars): ${result.stdout.slice(0, 500)}`);
+        }
+        await this.updateRunStatus(runId, "failed", errorMsg);
+        await this.updateTaskStatus(taskId, "failed");
+        this.emit("planning:failed", taskId, errorMsg);
+        return { success: false, error: errorMsg };
+      }
 
       // Store plan
       await this.db.insert(schema.taskPlans).values({
@@ -797,40 +584,6 @@ p { font-size: 1.05rem; line-height: 1.75; }
         log.warn("EXECUTION", `Project is not a git repository; executing directly in ${projectPath}`);
       }
 
-      if (!branchInfo.isGitRepo && this.isSimpleStaticFrontendTask(planData, payload.title as string)) {
-        const startedAt = Date.now();
-        const deterministicResult = await this.executeStaticHtmlCssTask(projectPath, {
-          title: payload.title as string,
-          description: payload.description as string | null,
-          acceptanceCriteria: payload.acceptanceCriteria as string | null,
-        });
-
-        await this.db.update(schema.taskRuns).set({
-          exitCode: 0,
-          stdout: deterministicResult.stdout,
-          stderr: "",
-          durationMs: Date.now() - startedAt,
-          finishedAt: new Date(),
-          status: "completed",
-          command: "taskhive deterministic static frontend execution",
-        }).where(eq(schema.taskRuns.id, runId));
-
-        await this.collector.collectExecutionResults(
-          taskId,
-          runId,
-          projectPath,
-          defaultBranch,
-          deterministicResult.stdout,
-        );
-
-        await this.updateTaskStatus(taskId, "in_review");
-        this.emit("task:moved", taskId, "in_progress", "in_review");
-        this.emit("execution:completed", taskId);
-        log.executionComplete(taskId);
-
-        return { success: true, data: { files: deterministicResult.files } };
-      }
-
       // 2. Build execution prompt
       const prompt = buildExecutionPrompt(
         {
@@ -841,6 +594,7 @@ p { font-size: 1.05rem; line-height: 1.75; }
         planData,
         branchInfo.name,
         agentName,
+        projectPath,
       );
 
       // 3. Run OpenCode agent
@@ -854,11 +608,13 @@ p { font-size: 1.05rem; line-height: 1.75; }
 
       log.executionOpenCodeSpawned(taskId, openCodeAgent);
 
+      const execModel = await this.resolveModelForAgent(agentName);
       const result = await runner.run({
         cwd: projectPath,
         agent: openCodeAgent,
         prompt,
         timeout: this.config.executionTimeout,
+        model: execModel,
       });
 
       this.activeRunners.delete(taskId);
@@ -948,16 +704,19 @@ p { font-size: 1.05rem; line-height: 1.75; }
         },
         gitDiff,
         planData,
+        projectPath,
       );
 
       // Run review agent
       const runner = new OpenCodeRunner(this.openCodeServer);
       this.activeRunners.set(taskId, runner);
 
+      const reviewModel = await this.resolveModelForAgent("reviewer");
       const result = await runner.run({
         cwd: projectPath,
         agent: "review",
         prompt,
+        model: reviewModel,
         timeout: this.config.reviewTimeout,
       });
 
@@ -1006,36 +765,6 @@ p { font-size: 1.05rem; line-height: 1.75; }
       const plan = await this.getTaskPlan(taskId);
       const planData = plan?.planJson as PlanningResult | null;
 
-      if (planData && this.isSimpleStaticFrontendTask(planData, payload.title as string)) {
-        const startedAt = Date.now();
-        const qa = await this.verifyStaticHtmlCssTask(projectPath);
-
-        await this.db.update(schema.taskRuns).set({
-          exitCode: qa.passed ? 0 : 1,
-          stdout: qa.report,
-          stderr: "",
-          durationMs: Date.now() - startedAt,
-          finishedAt: new Date(),
-          status: qa.passed ? "completed" : "failed",
-          command: "taskhive deterministic static frontend qa",
-        }).where(eq(schema.taskRuns.id, runId));
-
-        await this.collector.storeQAReport(taskId, runId, qa.report);
-        log.qaComplete(taskId, qa.passed);
-
-        if (qa.passed) {
-          await this.updateTaskStatus(taskId, "done");
-          await this.db.update(schema.tasks).set({ completedAt: new Date() }).where(eq(schema.tasks.id, taskId));
-          this.emit("task:moved", taskId, "qa", "done");
-        } else {
-          await this.updateTaskStatus(taskId, "failed");
-          this.emit("task:moved", taskId, "qa", "failed");
-        }
-
-        this.emit("qa:completed", taskId, qa.report);
-        return { success: qa.passed, data: { report: qa.report } };
-      }
-
       // Build QA prompt
       const prompt = buildQAPrompt(
         {
@@ -1044,16 +773,19 @@ p { font-size: 1.05rem; line-height: 1.75; }
           acceptanceCriteria: payload.acceptanceCriteria as string | null,
         },
         planData,
+        projectPath,
       );
 
       // Run QA agent
       const runner = new OpenCodeRunner(this.openCodeServer);
       this.activeRunners.set(taskId, runner);
 
+      const qaModel = await this.resolveModelForAgent("qa");
       const result = await runner.run({
         cwd: projectPath,
         agent: "qa",
         prompt,
+        model: qaModel,
         timeout: this.config.qaTimeout,
       });
 
@@ -1170,15 +902,63 @@ p { font-size: 1.05rem; line-height: 1.75; }
       planner: "plan",
       coder: "build",
       build: "build",
-      frontend: "frontend",
-      backend: "backend",
-      reviewer: "review",
-      review: "review",
-      qa: "qa",
-      docs: "docs",
+      frontend: "build",
+      backend: "build",
+      reviewer: "build",
+      review: "build",
+      qa: "build",
+      docs: "build",
       explore: "explore",
       debugger: "build",
     };
     return mapping[agentName] || "build";
+  }
+
+  /**
+   * Resolve the OpenCode model string for a given TaskHive agent name.
+   * Reads from the config table in the DB (set via Settings UI).
+   * Falls back to the default model from WorkerConfig.
+   */
+  private async resolveModelForAgent(agentName: string): Promise<string | undefined> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(schema.config)
+        .where(eq(schema.config.key, "ai"));
+
+      if (!row?.value) return this.config.openCodeModel;
+
+      const aiConfig = row.value as {
+        agents?: Record<string, { provider?: string; model?: string }>;
+      };
+
+      // Map TaskHive agent name to config key
+      const configKey = agentName === "plan" ? "planner"
+        : agentName === "build" ? "coder"
+        : agentName === "review" ? "reviewer"
+        : agentName;
+
+      const agentConfig = aiConfig.agents?.[configKey];
+      if (!agentConfig?.provider || !agentConfig?.model) {
+        return this.config.openCodeModel;
+      }
+
+      // Map TaskHive provider names to OpenCode provider IDs
+      // TaskHive config: { provider: "router", model: "cx/gpt-5.5" }
+      // OpenCode format: "9router/cx/gpt-5.5"
+      const providerMap: Record<string, string> = {
+        router: "9router",
+        openrouter: "openrouter",
+        openai: "openai",
+        anthropic: "anthropic",
+      };
+
+      const openCodeProvider = providerMap[agentConfig.provider] ?? agentConfig.provider;
+      const model = `${openCodeProvider}/${agentConfig.model}`;
+      log.info("RUNNER", `Resolved model for ${agentName}: ${model}`);
+      return model;
+    } catch {
+      return this.config.openCodeModel;
+    }
   }
 }
