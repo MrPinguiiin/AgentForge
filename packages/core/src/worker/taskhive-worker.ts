@@ -298,6 +298,49 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
   }
 
   /**
+   * Queue a fix execution triggered by QA failure.
+   * Re-runs the coder agent with QA feedback injected so it can fix the specific issues.
+   */
+  async queueFixFromQA(taskId: string, qaFeedback: string): Promise<schema.Job> {
+    const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+
+    const [project] = await this.db.select().from(schema.projects).where(eq(schema.projects.id, task.projectId));
+    if (!project) throw new Error(`Project not found: ${task.projectId}`);
+
+    // Get existing plan
+    const plan = await this.getTaskPlan(taskId);
+    const planData = plan?.planJson as PlanningResult | null;
+    if (!planData) throw new Error(`No plan found for task: ${taskId}`);
+
+    const agentName = task.agentType || "coder";
+    const run = await this.createRun(taskId, "execution", agentName);
+
+    // Move back to in_progress
+    await this.updateTaskStatus(taskId, "in_progress");
+    log.info("QA-FIX", `Re-executing task ${taskId.slice(0, 8)} with QA feedback`);
+
+    // Enqueue execution job with qaFeedback in payload
+    const job = await this.queue.addJob("execution", taskId, {
+      projectId: project.id,
+      projectPath: project.rootPath,
+      projectName: project.name,
+      defaultBranch: project.defaultBranch || "main",
+      runId: run.id,
+      planId: plan?.id,
+      agentName,
+      title: task.title,
+      description: task.description,
+      acceptanceCriteria: task.acceptanceCriteria,
+      plan: planData,
+      qaFeedback, // <-- injected QA feedback for the fix prompt
+    });
+
+    this.emit("execution:queued", taskId);
+    return job;
+  }
+
+  /**
    * Queue a review job
    */
   async queueReview(taskId: string): Promise<schema.Job> {
@@ -1116,7 +1159,7 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       }
 
       // Build execution prompt with context
-      const prompt = buildExecutionPrompt(
+      let prompt = buildExecutionPrompt(
         {
           title: payload.title as string,
           description: payload.description as string | null,
@@ -1129,6 +1172,13 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         execProjectContext.summary,
         execSiblingContext,
       );
+
+      // If this is a QA-triggered fix, append the QA feedback to the prompt
+      const qaFeedback = payload.qaFeedback as string | undefined;
+      if (qaFeedback) {
+        log.info("EXECUTION", "QA feedback injected — this is a fix run");
+        prompt += `\n\n--- IMPORTANT: QA FIX REQUIRED ---\n${qaFeedback}`;
+      }
 
       // 3. Run OpenCode agent
       const runner = new OpenCodeRunner(this.openCodeServer);
@@ -1446,12 +1496,44 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
           if (qaResult.verification_summary) {
             log.info("QA", `Summary: ${String(qaResult.verification_summary)}`);
           }
-          await this.updateTaskStatus(taskId, "failed");
-          this.emit("task:moved", taskId, "qa", "failed");
+
+          // AUTO-FIX: Instead of marking failed, re-execute with QA feedback (max 2 attempts)
+          const [currentTask] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+          const retryCount = currentTask?.retryCount ?? 0;
+          const MAX_QA_FIX_ATTEMPTS = 2;
+
+          if (retryCount < MAX_QA_FIX_ATTEMPTS) {
+            log.info("QA", `Auto-fix attempt ${retryCount + 1}/${MAX_QA_FIX_ATTEMPTS} — re-executing with QA feedback`);
+
+            // Build QA feedback string for the execution agent
+            const failingTests = Array.isArray(qaResult.failing_tests) ? qaResult.failing_tests : [];
+            const qaFeedback = [
+              "QA VERIFICATION FAILED. You must fix the following issues:",
+              "",
+              `Summary: ${String(qaResult.verification_summary || "QA check failed")}`,
+              "",
+              ...(failingTests.length > 0 ? ["Failing tests:"] : []),
+              ...failingTests.map((t: unknown) => `- ${typeof t === "string" ? t : JSON.stringify(t)}`),
+              "",
+              "FIX THESE ISSUES NOW. Do not rewrite everything — make minimal targeted fixes.",
+              "Read the failing file(s), identify the exact bug, and fix only that.",
+            ].join("\n");
+
+            // Increment retry count
+            await this.db.update(schema.tasks).set({
+              retryCount: retryCount + 1,
+            }).where(eq(schema.tasks.id, taskId));
+
+            // Re-queue execution with QA feedback
+            await this.queueFixFromQA(taskId, qaFeedback);
+          } else {
+            log.info("QA", `Max auto-fix attempts (${MAX_QA_FIX_ATTEMPTS}) reached — marking as failed`);
+            await this.updateTaskStatus(taskId, "failed");
+            this.emit("task:moved", taskId, "qa", "failed");
+          }
         }
       } catch {
         // If we can't parse the JSON, store the raw output and mark as FAILED
-        // (previously this was optimistic — now we're strict)
         log.warn("QA", "Could not parse QA result JSON — marking as FAILED (raw output stored as artifact)");
         log.qaComplete(taskId, false);
         await this.updateTaskStatus(taskId, "failed");
@@ -1526,11 +1608,15 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
 
   /**
    * Build context about sibling tasks in the same project.
-   * Helps agents understand what other tasks have done or are doing.
+   * Includes actual code diffs and plan details from completed tasks
+   * so agents can integrate with existing implementations.
    */
   private async buildSiblingTasksContext(taskId: string, projectId: string): Promise<string> {
+    const MAX_DIFF_PER_SIBLING = 3000;
+    const MAX_SUMMARY_CHARS = 500;
+    const MAX_TOTAL_CONTEXT = 12000;
+
     try {
-      // Get all tasks in the same project (excluding current task)
       const allTasks = await this.db
         .select({
           id: schema.tasks.id,
@@ -1539,92 +1625,101 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
           status: schema.tasks.status,
           agentType: schema.tasks.agentType,
           branch: schema.tasks.branch,
+          executionOrder: schema.tasks.executionOrder,
         })
         .from(schema.tasks)
-        .where(
-          and(
-            eq(schema.tasks.projectId, projectId),
-          ),
-        );
+        .where(eq(schema.tasks.projectId, projectId));
 
-      // Filter out current task and irrelevant statuses
-      const siblings = allTasks.filter(
-        (t) => t.id !== taskId && !["cancelled", "backlog"].includes(t.status),
-      );
+      const siblings = allTasks
+        .filter((t) => t.id !== taskId && !["cancelled", "backlog"].includes(t.status))
+        // Prioritize completed tasks first (most useful context)
+        .sort((a, b) => {
+          const order = { done: 0, in_progress: 1, in_review: 2, qa: 3, needs_human: 4, planning: 5, failed: 6 };
+          return (order[a.status as keyof typeof order] ?? 9) - (order[b.status as keyof typeof order] ?? 9);
+        });
 
       if (siblings.length === 0) return "";
 
-      const lines: string[] = ["RELATED TASKS IN THIS PROJECT:"];
+      const lines: string[] = ["RELATED TASKS IN THIS PROJECT (read carefully):"];
+      let totalChars = 0;
 
       for (const sibling of siblings) {
+        if (totalChars > MAX_TOTAL_CONTEXT) break;
+
         const statusIcon =
-          sibling.status === "done"
-            ? "✅ [DONE]"
-            : sibling.status === "in_progress" || sibling.status === "coding"
-              ? "⚡ [IN PROGRESS]"
-              : sibling.status === "planning"
-                ? "🧠 [PLANNING]"
-                : sibling.status === "in_review" || sibling.status === "qa"
-                  ? "🔍 [REVIEW/QA]"
-                  : sibling.status === "needs_human"
-                    ? "🖐️ [NEEDS HUMAN]"
-                    : sibling.status === "failed"
-                      ? "❌ [FAILED]"
-                      : `[${sibling.status.toUpperCase()}]`;
+          sibling.status === "done" ? "[DONE]"
+            : sibling.status === "in_progress" || sibling.status === "coding" ? "[IN PROGRESS]"
+            : sibling.status === "planning" ? "[PLANNING]"
+            : sibling.status === "in_review" || sibling.status === "qa" ? "[REVIEW/QA]"
+            : sibling.status === "needs_human" ? "[NEEDS HUMAN]"
+            : sibling.status === "failed" ? "[FAILED]"
+            : `[${sibling.status.toUpperCase()}]`;
 
-        let line = `${statusIcon} "${sibling.title}"`;
+        let section = `\n--- ${statusIcon} Task: "${sibling.title}" ---`;
 
-        // For done/in_progress tasks, try to get file change info from artifacts
+        // For completed/active tasks, include rich context
         if (["done", "in_progress", "in_review", "qa", "needs_human"].includes(sibling.status)) {
           try {
             const artifacts = await this.collector.getTaskArtifacts(sibling.id);
 
-            // Get file list from git_diff_stat
-            const diffStat = artifacts.find((a) => a.artifactType === "git_diff_stat");
-            if (diffStat?.content) {
-              // Parse "file | changes" lines from diff stat
-              const fileLines = diffStat.content
-                .split("\n")
-                .filter((l) => l.includes("|"))
-                .map((l) => l.split("|")[0].trim())
-                .filter((f) => f.length > 0);
+            // 1. Include planning data (files + steps) so agent knows the architecture
+            const planArtifact = artifacts.find((a) => a.artifactType === "planning_json");
+            if (planArtifact?.content) {
+              try {
+                const plan = JSON.parse(planArtifact.content);
+                if (plan.likely_files_to_change?.length) {
+                  section += `\nFiles created/modified: ${plan.likely_files_to_change.join(", ")}`;
+                }
+                if (plan.implementation_steps?.length) {
+                  section += `\nImplementation: ${plan.implementation_steps.slice(0, 5).join("; ")}`;
+                }
+              } catch { /* ignore parse errors */ }
+            }
 
-              if (fileLines.length > 0) {
-                line += `\n   → Files: ${fileLines.join(", ")}`;
+            // 2. Include actual code diff (the most important part for integration)
+            const diffArtifact = artifacts.find((a) => a.artifactType === "git_diff");
+            if (diffArtifact?.content && sibling.status === "done") {
+              const diff = diffArtifact.content.slice(0, MAX_DIFF_PER_SIBLING);
+              section += `\n\nACTUAL CODE CHANGES:\n\`\`\`diff\n${diff}${diffArtifact.content.length > MAX_DIFF_PER_SIBLING ? "\n... (truncated)" : ""}\n\`\`\``;
+            } else {
+              // Fallback: include diff stat (file names + change counts)
+              const diffStat = artifacts.find((a) => a.artifactType === "git_diff_stat");
+              if (diffStat?.content) {
+                const fileLines = diffStat.content
+                  .split("\n")
+                  .filter((l) => l.includes("|"))
+                  .map((l) => l.split("|")[0].trim())
+                  .filter((f) => f.length > 0);
+                if (fileLines.length > 0) {
+                  section += `\nChanged files: ${fileLines.join(", ")}`;
+                }
               }
             }
 
-            // Get summary
+            // 3. Include summary
             const summary = artifacts.find((a) => a.artifactType === "final_summary");
             if (summary?.content) {
-              // Truncate summary to first 200 chars
-              const shortSummary = summary.content.slice(0, 200).replace(/\n/g, " ").trim();
-              if (shortSummary) {
-                line += `\n   → Summary: ${shortSummary}${summary.content.length > 200 ? "..." : ""}`;
-              }
+              const shortSummary = summary.content.slice(0, MAX_SUMMARY_CHARS).replace(/\n/g, " ").trim();
+              section += `\nSummary: ${shortSummary}${summary.content.length > MAX_SUMMARY_CHARS ? "..." : ""}`;
             }
-          } catch {
-            // Ignore artifact fetch errors
-          }
+          } catch { /* ignore artifact fetch errors */ }
         }
 
-        lines.push(line);
+        totalChars += section.length;
+        lines.push(section);
       }
 
       lines.push("");
-      lines.push(
-        "IMPORTANT: Coordinate with the tasks above. Do NOT duplicate work that is already done.",
-      );
-      lines.push(
-        "If a completed task created files, your code should integrate with those files.",
-      );
+      lines.push("CRITICAL INTEGRATION RULES:");
+      lines.push("- BEFORE writing any code, READ all existing files in the project directory using the Read tool.");
+      lines.push("- If a completed task created files (see ACTUAL CODE CHANGES above), your code MUST integrate with them.");
+      lines.push("- Import/reference existing files instead of duplicating functionality.");
+      lines.push("- Match the coding style, variable names, and patterns used in existing code.");
+      lines.push("- If existing HTML references a script file (e.g., <script src=\"script.js\">), your code must be compatible with that reference.");
 
       return lines.join("\n");
     } catch (err) {
-      log.warn(
-        "WORKER",
-        `Failed to build sibling context: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      log.warn("WORKER", `Failed to build sibling context: ${err instanceof Error ? err.message : String(err)}`);
       return "";
     }
   }

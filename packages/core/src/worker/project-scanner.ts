@@ -104,7 +104,7 @@ const KEY_FILE_PATTERNS = [
 ];
 
 /** Max chars to read from each key file */
-const KEY_FILE_MAX_CHARS = 600;
+const KEY_FILE_MAX_CHARS = 1500;
 
 /** Max depth for directory traversal */
 const MAX_DEPTH = 4;
@@ -301,7 +301,20 @@ export class ProjectScanner {
       }
     }
 
-    return keyFiles;
+    // Include ALL source files at root and src/ level (for integration context)
+    // This ensures files created by previous tasks are visible to subsequent tasks
+    const sourceExtensions = new Set([".js", ".ts", ".jsx", ".tsx", ".css", ".scss", ".html", ".py", ".go", ".rs", ".vue", ".svelte"]);
+    for (const file of files) {
+      const ext = extname(file.path).toLowerCase();
+      const depth = file.path.split("/").length;
+      // Include root-level and src/-level source files (max 2 levels deep)
+      if (depth <= 2 && sourceExtensions.has(ext) && !keyFiles.includes(file.path)) {
+        keyFiles.push(file.path);
+      }
+    }
+
+    // Cap at 20 key files to avoid prompt explosion
+    return keyFiles.slice(0, 20);
   }
 
   /**

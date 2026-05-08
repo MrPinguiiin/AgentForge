@@ -159,30 +159,104 @@ export class BranchManager {
   }
 
   /**
-   * Get git diff stat
+   * Get the first commit hash in the repo (for diffing fresh repos without a base branch).
+   */
+  private static async getFirstCommit(cwd: string): Promise<string> {
+    const { stdout } = await this.git(cwd, ["rev-list", "--max-parents=0", "HEAD"]);
+    const firstCommit = stdout.trim().split("\n")[0];
+    // Return the empty tree hash if no commits exist
+    return firstCommit || "4b825dc642cb6eb9a060e54bf899d69f82cf7256";
+  }
+
+  /**
+   * Get git diff stat between current branch and base branch.
+   * Called AFTER stageAll() so all changes are staged.
    */
   static async getDiffStat(cwd: string, baseBranch = "main"): Promise<string> {
-    const { stdout } = await this.git(cwd, ["diff", "--stat", baseBranch]);
+    const { exitCode: branchExists } = await this.git(cwd, ["rev-parse", "--verify", baseBranch]);
+    const hasBase = branchExists === 0;
+
+    let stdout = "";
+
+    // Strategy 1: committed changes vs base
+    if (hasBase) {
+      const { stdout: revCount } = await this.git(cwd, ["rev-list", "--count", `${baseBranch}..HEAD`]);
+      if (parseInt(revCount.trim() || "0", 10) > 0) {
+        const result = await this.git(cwd, ["diff", "--stat", baseBranch, "HEAD"]);
+        if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+      }
+    }
+
+    // Strategy 2: staged changes stat
+    if (!stdout) {
+      const result = await this.git(cwd, ["diff", "--stat", "--cached"]);
+      if (result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 3: staged vs base
+    if (!stdout && hasBase) {
+      const result = await this.git(cwd, ["diff", "--stat", "--cached", baseBranch]);
+      if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 4: against empty tree
+    if (!stdout) {
+      const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f82cf7256";
+      const result = await this.git(cwd, ["diff", "--stat", "--cached", emptyTree]);
+      if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+    }
+
     return stdout;
   }
 
   /**
-   * Get full git diff
+   * Get full git diff between current branch and base branch.
+   * Handles: committed changes, staged changes, untracked files (after git add -A).
+   * Called AFTER stageAll() so all changes are staged.
    */
   static async getDiff(cwd: string, baseBranch = "main"): Promise<string> {
-    // First try diff against base branch
-    let { stdout, exitCode } = await this.git(cwd, ["diff", baseBranch]);
+    // Check if base branch exists
+    const { exitCode: branchExists } = await this.git(cwd, ["rev-parse", "--verify", baseBranch]);
+    const hasBase = branchExists === 0;
 
-    if (exitCode !== 0 || !stdout) {
-      // Fallback: diff of uncommitted changes
+    // Check if HEAD has any commits beyond base
+    let hasNewCommits = false;
+    if (hasBase) {
+      const { stdout: revCount } = await this.git(cwd, ["rev-list", "--count", `${baseBranch}..HEAD`]);
+      hasNewCommits = parseInt(revCount.trim() || "0", 10) > 0;
+    }
+
+    let stdout = "";
+
+    // Strategy 1: If there are new commits on this branch, diff them against base
+    if (hasBase && hasNewCommits) {
+      const result = await this.git(cwd, ["diff", baseBranch, "HEAD"]);
+      if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 2: Staged changes (after git add -A, this captures ALL new/modified files)
+    if (!stdout) {
+      const result = await this.git(cwd, ["diff", "--cached"]);
+      if (result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 3: Staged changes against base branch
+    if (!stdout && hasBase) {
+      const result = await this.git(cwd, ["diff", "--cached", baseBranch]);
+      if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 4: Diff against empty tree (for brand new repos with no prior commits)
+    if (!stdout) {
+      const emptyTree = "4b825dc642cb6eb9a060e54bf899d69f82cf7256";
+      const result = await this.git(cwd, ["diff", "--cached", emptyTree]);
+      if (result.exitCode === 0 && result.stdout) stdout = result.stdout;
+    }
+
+    // Strategy 5: Unstaged changes (shouldn't happen after stageAll, but just in case)
+    if (!stdout) {
       const result = await this.git(cwd, ["diff"]);
-      stdout = result.stdout;
-
-      // Also include staged changes
-      const staged = await this.git(cwd, ["diff", "--cached"]);
-      if (staged.stdout) {
-        stdout = (stdout ? stdout + "\n" : "") + staged.stdout;
-      }
+      if (result.stdout) stdout = result.stdout;
     }
 
     return stdout;
@@ -196,6 +270,13 @@ export class BranchManager {
     await this.git(cwd, ["checkout", baseBranch]);
     // Delete the branch
     await this.git(cwd, ["branch", "-D", branchName]);
+  }
+
+  /**
+   * Stage all changes (including untracked files) so they appear in diff --cached.
+   */
+  static async stageAll(cwd: string): Promise<void> {
+    await this.git(cwd, ["add", "-A"]);
   }
 
   /**

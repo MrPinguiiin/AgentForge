@@ -144,20 +144,40 @@ ${plan.implementation_steps?.map((s, i) => `${i + 1}. ${s}`).join("\n") || "Foll
 Files to create or modify (inside ${projectPath}):
 ${plan.likely_files_to_change?.map((f) => `- ${projectPath}/${f}`).join("\n") || "- Determine from the task description."}
 
-EXECUTION RULES:
+EXECUTION RULES (FOLLOW THIS ORDER):
+
+STEP 1 — EXPLORE FIRST (MANDATORY):
+- BEFORE writing ANY code, use the Read tool to read ALL existing files in ${projectPath}.
+- Use Glob to discover all files: "**/*" in ${projectPath}.
+- Read each file to understand the current codebase structure.
+- Pay special attention to HTML files that reference scripts/styles (e.g., <script src="...">).
+- If RELATED TASKS above show code changes, understand how those files work.
+
+STEP 2 — PLAN INTEGRATION:
+- Identify which existing files your code needs to connect with.
+- If an HTML file already has <script src="script.js">, your script.js must export/expose what that HTML expects.
+- If a module already exports functions, import from it instead of recreating.
+- Match variable names, function signatures, and patterns from existing code.
+
+STEP 3 — IMPLEMENT:
 - Create all files inside ${projectPath}.
 - Keep changes minimal and focused on the task.
 - Do not commit or push.
 - If blocked, stop and explain the blocker.
-- CRITICAL: Read existing files BEFORE creating new ones. If a file already exists, modify it instead of overwriting.
-- If existing code references files you need to create (e.g., <script src="script.js">), make sure your new files are compatible with those references.
-- If RELATED TASKS have already created files, integrate with them. Do NOT duplicate functionality.
-- Match the coding style, naming conventions, and patterns used in existing files.
+- If a file already exists, modify it instead of overwriting (unless the task requires replacement).
+
+STEP 4 — VERIFY CONNECTIONS:
+- After creating files, verify that all cross-file references work:
+  - HTML <script src="..."> points to files that exist
+  - import/require statements reference correct paths
+  - CSS class names match between HTML and stylesheets
+  - Function calls match exported function signatures
 
 Expected Output:
 After creating the files, return a brief summary listing:
 - files created or changed
 - what was implemented
+- how your code integrates with existing files
 - whether acceptance criteria are satisfied`;
 }
 

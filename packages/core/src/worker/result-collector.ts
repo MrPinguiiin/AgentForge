@@ -76,6 +76,9 @@ export class ResultCollector {
       return { gitStatus: "", gitDiffStat: "", gitDiff: "", artifacts };
     }
 
+    // Stage all changes first (including new untracked files) so they appear in diff
+    await BranchManager.stageAll(cwd);
+
     // 1. Git status
     const gitStatus = await BranchManager.getStatus(cwd);
     if (gitStatus) {
@@ -83,14 +86,14 @@ export class ResultCollector {
       artifacts.push(artifact);
     }
 
-    // 2. Git diff stat
+    // 2. Git diff stat (staged + committed vs base)
     const gitDiffStat = await BranchManager.getDiffStat(cwd, baseBranch);
     if (gitDiffStat) {
       const artifact = await this.storeArtifact(taskId, runId, "git_diff_stat", gitDiffStat);
       artifacts.push(artifact);
     }
 
-    // 3. Full git diff
+    // 3. Full git diff (staged + committed vs base)
     const gitDiff = await BranchManager.getDiff(cwd, baseBranch);
     if (gitDiff) {
       const artifact = await this.storeArtifact(taskId, runId, "git_diff", gitDiff);

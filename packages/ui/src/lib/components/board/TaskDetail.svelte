@@ -512,28 +512,110 @@
                     Re-plan
                   </Button>
                 </div>
-              {:else if task.status === 'planning'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
-                  <span class="material-symbols-outlined text-primary text-[20px] animate-spin">psychology</span>
-                  <div>
-                    <p class="text-sm font-medium text-foreground">Planning in progress...</p>
-                    <p class="text-xs text-muted-foreground">OpenCode is analyzing the task and creating a plan</p>
-                  </div>
+      {:else if task.status === 'planning'}
+        <!-- B1: Planning — Live plan preview -->
+        <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
+          <span class="material-symbols-outlined text-primary text-[20px] animate-spin">psychology</span>
+          <div>
+            <p class="text-sm font-medium text-foreground">AI is creating implementation plan...</p>
+            <p class="text-xs text-muted-foreground">Analyzing task requirements, identifying files, and planning steps</p>
+          </div>
+        </div>
+
+        <!-- Plan preview (if plan already loaded from previous attempt) -->
+        {#if taskPlan?.planJson}
+          <div class="p-3 rounded-lg bg-muted border border-border mb-3 space-y-2">
+            <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Plan Preview</p>
+            {#if taskPlan.planJson.summary}
+              <p class="text-xs text-foreground">{taskPlan.planJson.summary}</p>
+            {/if}
+            {#if taskPlan.planJson.likely_files_to_change?.length}
+              <div>
+                <p class="text-[10px] text-muted-foreground font-medium mb-1">Files to create/modify:</p>
+                <div class="flex flex-wrap gap-1">
+                  {#each taskPlan.planJson.likely_files_to_change as f}
+                    <span class="px-1.5 py-0.5 rounded bg-secondary text-[10px] font-mono text-secondary-foreground">{f}</span>
+                  {/each}
                 </div>
-                {#if streamOutput}
-                  <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
-                {/if}
-              {:else if task.status === 'in_progress' || task.status === 'coding'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
-                  <span class="material-symbols-outlined text-primary text-[20px] animate-spin">sync</span>
-                  <div>
-                    <p class="text-sm font-medium text-foreground">Agent is working...</p>
-                    <p class="text-xs text-muted-foreground">{task.agentType ?? 'AI'} agent executing the plan</p>
-                  </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Live stream output -->
+        {#if streamOutput}
+          <div class="rounded-lg border border-border overflow-hidden">
+            <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <span class="text-[10px] font-medium text-muted-foreground">AI Output (Live)</span>
+            </div>
+            <pre bind:this={streamEl} class="p-4 text-xs font-mono text-foreground overflow-auto max-h-[50vh] whitespace-pre-wrap bg-card">{streamOutput}</pre>
+          </div>
+        {/if}
+
+      {:else if task.status === 'in_progress' || task.status === 'coding'}
+        <!-- B2: In Progress — Plan checklist + live coding stream -->
+        <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
+          <span class="material-symbols-outlined text-primary text-[20px] animate-spin">code</span>
+          <div>
+            <p class="text-sm font-medium text-foreground">AI is writing code...</p>
+            <p class="text-xs text-muted-foreground">{task.agentType ?? 'AI'} agent implementing the plan</p>
+          </div>
+        </div>
+
+        <!-- Implementation steps (animated while coding) -->
+        {#if taskPlan?.planJson?.implementation_steps?.length}
+          <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Implementation Steps</p>
+              <span class="text-[10px] text-primary animate-pulse">Working...</span>
+            </div>
+            <div class="space-y-1.5">
+              {#each taskPlan.planJson.implementation_steps as step, i}
+                <div class="flex items-start gap-2 text-xs">
+                  <span class="material-symbols-outlined text-[14px] mt-0.5 text-primary/60 animate-pulse">pending</span>
+                  <span class="text-foreground">{i + 1}. {step}</span>
                 </div>
-                {#if streamOutput}
-                  <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
-                {/if}
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Files being worked on -->
+        {#if taskPlan?.planJson?.likely_files_to_change?.length}
+          <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+            <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Target Files</p>
+            <div class="flex flex-wrap gap-1.5">
+              {#each taskPlan.planJson.likely_files_to_change as f}
+                <span class="px-2 py-1 rounded-md bg-primary/10 text-primary text-[11px] font-mono border border-primary/20">{f}</span>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Live stream output -->
+        {#if streamOutput}
+          <div class="rounded-lg border border-border overflow-hidden">
+            <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              <span class="text-[10px] font-medium text-muted-foreground">AI Output (Live)</span>
+            </div>
+            <pre bind:this={streamEl} class="p-4 text-xs font-mono text-foreground overflow-auto max-h-[50vh] whitespace-pre-wrap bg-card">{streamOutput}</pre>
+          </div>
+        {:else}
+          <div class="flex items-center justify-center py-6 text-muted-foreground">
+            <span class="material-symbols-outlined text-[16px] animate-spin mr-2">sync</span>
+            <span class="text-xs">Waiting for agent output...</span>
+          </div>
+        {/if}
+
+        <!-- Show diff stat if already available (from previous run) -->
+        {#if gitDiffStat}
+          <div class="mt-3 p-3 rounded-lg bg-muted border border-border">
+            <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Files Changed</p>
+            <pre class="text-[11px] font-mono text-foreground whitespace-pre-wrap">{gitDiffStat}</pre>
+          </div>
+        {/if}
               {:else if task.status === 'needs_human'}
                 <!-- Need Human: Plan Review Mode -->
                 {#if task.needsHumanReason === 'plan_review' || task.needsHumanReason === 'high_risk'}
@@ -631,9 +713,49 @@
 
                   <!-- Review verdict from AI (if available) -->
                   {#if reviewVerdict}
-                    <div class="p-3 rounded-lg bg-muted border border-border mb-3">
-                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">AI Review Verdict</p>
-                      <pre class="text-xs text-foreground whitespace-pre-wrap max-h-32 overflow-auto">{reviewVerdict}</pre>
+                    <div class="p-3 rounded-lg border border-border mb-3 {parsedReview?.verdict === 'approve' ? 'bg-green-500/5 border-green-500/20' : parsedReview?.verdict === 'request_changes' ? 'bg-destructive/5 border-destructive/20' : 'bg-muted'}">
+                      <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">AI Review Verdict</p>
+                        {#if parsedReview?.verdict}
+                          <Badge variant={parsedReview.verdict === 'approve' ? 'default' : 'destructive'}>
+                            <span class="material-symbols-outlined text-[12px] mr-1" style="font-variation-settings: 'FILL' 1;">
+                              {parsedReview.verdict === 'approve' ? 'check_circle' : 'cancel'}
+                            </span>
+                            {parsedReview.verdict === 'approve' ? 'Approved' : 'Changes Requested'}
+                          </Badge>
+                        {/if}
+                      </div>
+                      {#if parsedReview?.summary}
+                        <p class="text-xs text-foreground mb-2">{parsedReview.summary}</p>
+                      {/if}
+                      {#if parsedReview?.acceptance_criteria_results?.length}
+                        <div class="space-y-1">
+                          {#each parsedReview.acceptance_criteria_results as cr}
+                            <div class="flex items-start gap-2 text-xs">
+                              <span class="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0 {cr.met ? 'text-green-600 dark:text-green-400' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                                {cr.met ? 'check_circle' : 'cancel'}
+                              </span>
+                              <div>
+                                <span class="text-foreground">{cr.criterion}</span>
+                                {#if cr.detail}
+                                  <span class="text-muted-foreground"> — {cr.detail}</span>
+                                {/if}
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if parsedReview?.issues?.length}
+                        <div class="mt-2">
+                          <p class="text-[10px] font-semibold text-destructive uppercase tracking-wider mb-1">Issues</p>
+                          {#each parsedReview.issues as issue}
+                            <p class="text-xs text-foreground">• {typeof issue === 'string' ? issue : JSON.stringify(issue)}</p>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if !parsedReview}
+                        <p class="text-xs text-foreground whitespace-pre-wrap max-h-32 overflow-auto">{reviewVerdict}</p>
+                      {/if}
                     </div>
                   {/if}
 
@@ -684,24 +806,214 @@
                   </div>
                 {/if}
               {:else if task.status === 'in_review'}
-                <div class="flex items-center gap-2">
-                  <Button class="flex-1" variant="default" disabled={actionLoading === 'accept-review'} onclick={() => handleAction('accept-review')}>
-                    <span class="material-symbols-outlined text-[16px] mr-1">check</span>
-                    Accept
-                  </Button>
-                  <Button class="flex-1" variant="destructive" disabled={actionLoading === 'decline-review'} onclick={() => handleAction('decline-review')}>
-                    <span class="material-symbols-outlined text-[16px] mr-1">close</span>
-                    Decline
-                  </Button>
-                  <Button variant="outline" disabled={actionLoading === 'run-review'} onclick={() => handleAction('run-review')}>
-                    <span class="material-symbols-outlined text-[14px] mr-1" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
-                    AI Review
-                  </Button>
+                <!-- B3: In Review — Diff preview + AI reviewing stream -->
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-500/5 border border-amber-500/20 mb-3">
+                  <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[20px] animate-spin">rate_review</span>
+                  <div>
+                    <p class="text-sm font-medium text-foreground">AI is reviewing code changes...</p>
+                    <p class="text-xs text-muted-foreground">Checking acceptance criteria, code quality, and integration</p>
+                  </div>
                 </div>
+
+                <!-- Code diff preview -->
+                {#if gitDiff}
+                  <div class="rounded-lg border border-border overflow-hidden mb-3">
+                    <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center justify-between">
+                      <span class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code Changes</span>
+                      {#if gitDiffStat}
+                        <span class="text-[10px] text-muted-foreground font-mono">{gitDiffStat.split('\n').filter(l => l.includes('|')).length} files</span>
+                      {/if}
+                    </div>
+                    <div style="max-height: 300px;" class="overflow-auto">
+                      <DiffViewer diff={gitDiff} maxHeight="300px" />
+                    </div>
+                  </div>
+                {:else if gitDiffStat}
+                  <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                    <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Files Under Review</p>
+                    <pre class="text-[11px] font-mono text-foreground whitespace-pre-wrap">{gitDiffStat}</pre>
+                  </div>
+                {/if}
+
+                <!-- Live stream output -->
+                {#if streamOutput}
+                  <div class="rounded-lg border border-border overflow-hidden mb-3">
+                    <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                      <span class="text-[10px] font-medium text-muted-foreground">Review Output (Live)</span>
+                    </div>
+                    <pre bind:this={streamEl} class="p-4 text-xs font-mono text-foreground overflow-auto max-h-[40vh] whitespace-pre-wrap bg-card">{streamOutput}</pre>
+                  </div>
+                {/if}
+
+                <!-- Review verdict if already available -->
+                {#if parsedReview}
+                  <div class="p-3 rounded-lg border mb-3 {parsedReview.verdict === 'approve' ? 'bg-green-500/5 border-green-500/20' : 'bg-destructive/5 border-destructive/20'}">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="material-symbols-outlined text-[14px] {parsedReview.verdict === 'approve' ? 'text-green-600' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                        {parsedReview.verdict === 'approve' ? 'check_circle' : 'cancel'}
+                      </span>
+                      <span class="text-xs font-semibold {parsedReview.verdict === 'approve' ? 'text-green-600' : 'text-destructive'}">
+                        {parsedReview.verdict === 'approve' ? 'Approved' : 'Changes Requested'}
+                      </span>
+                    </div>
+                    {#if parsedReview.summary}
+                      <p class="text-xs text-foreground">{parsedReview.summary}</p>
+                    {/if}
+                  </div>
+                {/if}
+
+                <!-- Only show manual buttons if review mode is human -->
+                {#if task.reviewMode === 'human'}
+                  <div class="flex items-center gap-2">
+                    <Button class="flex-1" variant="default" disabled={actionLoading === 'accept-review'} onclick={() => handleAction('accept-review')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">check</span>
+                      Accept
+                    </Button>
+                    <Button class="flex-1" variant="destructive" disabled={actionLoading === 'decline-review'} onclick={() => handleAction('decline-review')}>
+                      <span class="material-symbols-outlined text-[16px] mr-1">close</span>
+                      Decline
+                    </Button>
+                  </div>
+                {:else}
+                  <div class="flex items-center justify-center py-3 text-xs text-muted-foreground gap-2">
+                    <span class="material-symbols-outlined text-[14px] animate-spin">sync</span>
+                    Auto-review in progress...
+                  </div>
+                {/if}
+              {:else if task.status === 'qa'}
+                <!-- B4: QA — Acceptance checklist + test plan + AI verifying stream -->
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-violet-500/5 border border-violet-500/20 mb-3">
+                  <span class="material-symbols-outlined text-violet-600 dark:text-violet-400 text-[20px] animate-spin">bug_report</span>
+                  <div>
+                    <p class="text-sm font-medium text-foreground">AI is verifying implementation...</p>
+                    <p class="text-xs text-muted-foreground">Checking acceptance criteria, running tests, validating files</p>
+                  </div>
+                </div>
+
+                <!-- Acceptance criteria checklist -->
+                {#if task.acceptanceCriteria}
+                  <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                    <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Acceptance Criteria Being Verified</p>
+                    <div class="space-y-1.5">
+                      {#each task.acceptanceCriteria.split('\n').filter(l => l.trim()) as criterion}
+                        <div class="flex items-start gap-2 text-xs">
+                          <span class="material-symbols-outlined text-[14px] mt-0.5 text-muted-foreground/50 animate-pulse">pending</span>
+                          <span class="text-foreground">{criterion.replace(/^[-*•]\s*/, '')}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Test plan from planning -->
+                {#if taskPlan?.planJson?.test_plan?.length}
+                  <div class="p-3 rounded-lg bg-muted border border-border mb-3">
+                    <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Test Plan</p>
+                    <div class="space-y-1.5">
+                      {#each taskPlan.planJson.test_plan as test}
+                        <div class="flex items-start gap-2 text-xs">
+                          <span class="material-symbols-outlined text-[14px] mt-0.5 text-muted-foreground/50">science</span>
+                          <span class="text-foreground">{test}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Live stream output -->
+                {#if streamOutput}
+                  <div class="rounded-lg border border-border overflow-hidden">
+                    <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-violet-500 animate-pulse"></span>
+                      <span class="text-[10px] font-medium text-muted-foreground">QA Output (Live)</span>
+                    </div>
+                    <pre bind:this={streamEl} class="p-4 text-xs font-mono text-foreground overflow-auto max-h-[40vh] whitespace-pre-wrap bg-card">{streamOutput}</pre>
+                  </div>
+                {:else}
+                  <div class="flex items-center justify-center py-6 text-muted-foreground">
+                    <span class="material-symbols-outlined text-[16px] animate-spin mr-2">bug_report</span>
+                    <span class="text-xs">Running QA verification...</span>
+                  </div>
+                {/if}
+
               {:else if task.status === 'done'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-chart-1/5 border border-chart-1/20">
+                <!-- B5: Done — Full completion summary -->
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-chart-1/5 border border-chart-1/20 mb-3">
                   <span class="material-symbols-outlined text-chart-1 text-[20px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
-                  <p class="text-sm font-medium text-foreground">Task completed</p>
+                  <p class="text-sm font-medium text-foreground">Task completed successfully</p>
+                </div>
+
+                <!-- Completion summary -->
+                <div class="space-y-3">
+                  <!-- Implementation steps (all checked) -->
+                  {#if taskPlan?.planJson?.implementation_steps?.length}
+                    <div class="p-3 rounded-lg bg-muted border border-border">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Implementation Steps</p>
+                      <div class="space-y-1">
+                        {#each taskPlan.planJson.implementation_steps as step, i}
+                          <div class="flex items-start gap-2 text-xs">
+                            <span class="material-symbols-outlined text-[14px] mt-0.5 text-chart-1" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                            <span class="text-foreground/70 line-through">{i + 1}. {step}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Plan summary -->
+                  {#if taskPlan?.planJson?.summary}
+                    <div class="p-3 rounded-lg bg-muted border border-border">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Plan</p>
+                      <p class="text-xs text-foreground">{taskPlan.planJson.summary}</p>
+                    </div>
+                  {/if}
+
+                  <!-- Files changed with diff preview -->
+                  {#if gitDiff}
+                    <div class="rounded-lg border border-border overflow-hidden">
+                      <div class="px-3 py-1.5 bg-muted border-b border-border flex items-center justify-between">
+                        <span class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Code Changes</span>
+                        {#if gitDiffStat}
+                          <span class="text-[10px] text-muted-foreground font-mono">{gitDiffStat.split('\n').filter(l => l.includes('|')).length} files</span>
+                        {/if}
+                      </div>
+                      <div style="max-height: 250px;" class="overflow-auto">
+                        <DiffViewer diff={gitDiff} maxHeight="250px" />
+                      </div>
+                    </div>
+                  {:else if gitDiffStat}
+                    <div class="p-3 rounded-lg bg-muted border border-border">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Files Changed</p>
+                      <pre class="text-[11px] font-mono text-foreground whitespace-pre-wrap">{gitDiffStat}</pre>
+                    </div>
+                  {/if}
+
+                  <!-- Review verdict -->
+                  {#if parsedReview}
+                    <div class="p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+                      <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[14px] text-green-600" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                        <span class="text-[10px] font-semibold text-green-600 uppercase tracking-wider">Review Passed</span>
+                      </div>
+                      {#if parsedReview.summary}
+                        <p class="text-xs text-foreground mt-1">{parsedReview.summary}</p>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- QA report -->
+                  {#if parsedQA}
+                    <div class="p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+                      <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[14px] text-green-600" style="font-variation-settings: 'FILL' 1;">verified</span>
+                        <span class="text-[10px] font-semibold text-green-600 uppercase tracking-wider">QA Passed</span>
+                      </div>
+                      {#if parsedQA.verification_summary}
+                        <p class="text-xs text-foreground mt-1">{parsedQA.verification_summary}</p>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               {:else if task.status === 'failed'}
                 <div class="px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-3">
@@ -1098,10 +1410,10 @@
                     </div>
                   {/if}
                   {#if !parsedReview}
-                    <details class="mt-1">
-                      <summary class="text-[10px] text-muted-foreground cursor-pointer">Raw output</summary>
-                      <pre class="text-[10px] font-mono text-foreground whitespace-pre-wrap mt-1 max-h-32 overflow-auto">{reviewVerdict}</pre>
-                    </details>
+                    <div class="mt-2 p-3 rounded-lg bg-card border border-border">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Review Output</p>
+                      <p class="text-xs text-foreground whitespace-pre-wrap leading-relaxed max-h-40 overflow-auto">{reviewVerdict}</p>
+                    </div>
                   {/if}
                 </div>
               {/if}
@@ -1201,10 +1513,10 @@
                   {/if}
 
                   {#if !parsedQA}
-                    <details class="mt-1">
-                      <summary class="text-[10px] text-muted-foreground cursor-pointer">Raw output</summary>
-                      <pre class="text-[10px] font-mono text-foreground whitespace-pre-wrap mt-1 max-h-32 overflow-auto">{qaReport}</pre>
-                    </details>
+                    <div class="mt-2 p-3 rounded-lg bg-card border border-border">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">QA Output</p>
+                      <p class="text-xs text-foreground whitespace-pre-wrap leading-relaxed max-h-40 overflow-auto">{qaReport}</p>
+                    </div>
                   {/if}
                 </div>
               {/if}
