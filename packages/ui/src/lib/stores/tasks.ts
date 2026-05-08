@@ -47,6 +47,8 @@ function filterByStatus(status: TaskStatus) {
 export const backlogTasks = filterByStatus('backlog');
 export const todoTasks = filterByStatus('todo');
 export const readyTasks = filterByStatus('ready');
+export const planningQueuedTasks = filterByStatus('planning_queued');
+export const plannedTasks = filterByStatus('planned');
 export const planningTasks = filterByStatus('planning');
 export const codingTasks = filterByStatus('coding');
 export const inProgressTasks = filterByStatus('in_progress');
@@ -61,6 +63,8 @@ export const columnTasks: Record<TaskStatus, ReturnType<typeof filterByStatus>> 
   backlog: backlogTasks,
   todo: todoTasks,
   ready: readyTasks,
+  planning_queued: planningQueuedTasks,
+  planned: plannedTasks,
   planning: planningTasks,
   coding: codingTasks,
   in_progress: inProgressTasks,

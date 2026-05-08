@@ -12,7 +12,7 @@
   let collapsed = $state(true);
   let entries = $state<LogEntry[]>([]);
   let nextId = 0;
-  let containerEl: HTMLDivElement;
+  let containerEl = $state<HTMLDivElement>(undefined!);
 
   onMount(() => {
     const unsub = wsStore.on('*', (msg: { type: string; payload: unknown }) => {

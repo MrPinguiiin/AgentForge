@@ -6,8 +6,13 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import * as Select from '$lib/components/ui/select/index.js';
+  import * as Command from '$lib/components/ui/command/index.js';
+  import * as Popover from '$lib/components/ui/popover/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as api from '$lib/api/client.js';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import ChevronsUpDownIcon from '@lucide/svelte/icons/chevrons-up-down';
+  import { cn } from '$lib/utils.js';
 
   interface AgentConfig {
     provider: string;
@@ -82,6 +87,18 @@
 
   // Track custom providers from config
   let customProviders = $state<{ id: string; name: string; apiKey: string; baseURL: string }[]>([]);
+
+  // Combobox open states per agent (keyed by agent key)
+  let providerOpen = $state<Record<string, boolean>>({});
+  let modelOpen = $state<Record<string, boolean>>({});
+
+  function setProviderOpen(key: string, val: boolean) {
+    providerOpen = { ...providerOpen, [key]: val };
+  }
+
+  function setModelOpen(key: string, val: boolean) {
+    modelOpen = { ...modelOpen, [key]: val };
+  }
 
   // Fetch models from a custom provider's remote API
   let fetchingModels = $state<string | null>(null);
@@ -267,7 +284,7 @@
 </svelte:head>
 
 <div class="flex-1 overflow-y-auto">
-  <div class="max-w-2xl mx-auto p-6 space-y-8">
+  <div class="max-w-4xl mx-auto p-6 space-y-8">
     <div>
       <h1 class="text-xl font-bold text-foreground">Settings</h1>
       <p class="text-sm text-muted-foreground mt-1">Configure AI providers and agent models.</p>
@@ -278,32 +295,33 @@
       <h2 class="text-sm font-semibold text-foreground uppercase tracking-wider">Provider API Keys</h2>
       <p class="text-xs text-muted-foreground">Keys are stored locally and sent to the server on save.</p>
 
-      {#each builtinProviders as provider}
-        <div class="p-4 rounded-xl border border-border bg-card">
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2">
+      <div class="grid gap-3">
+        {#each builtinProviders as provider}
+          <div class="p-4 rounded-xl border border-border bg-card flex items-center gap-4">
+            <div class="flex items-center gap-2 w-32 shrink-0">
               <span class="text-sm font-medium text-foreground capitalize">{provider}</span>
               {#if testResults[provider]}
-                <Badge variant={testResults[provider].ok ? 'default' : 'destructive'}>
-                  {testResults[provider].ok ? 'Connected' : 'Failed'}
+                <Badge variant={testResults[provider].ok ? 'default' : 'destructive'} class="text-[10px]">
+                  {testResults[provider].ok ? 'OK' : 'Fail'}
                 </Badge>
               {/if}
             </div>
+            <Input
+              type="password"
+              bind:value={providerKeys[provider]}
+              placeholder={`${provider} API key`}
+              class="font-mono flex-1"
+            />
             <Button
               variant="ghost"
+              size="sm"
               onclick={() => handleTestProvider(provider)}
             >
               Test
             </Button>
           </div>
-          <Input
-            type="password"
-            bind:value={providerKeys[provider]}
-            placeholder={`${provider} API key`}
-            class="font-mono"
-          />
-        </div>
-      {/each}
+        {/each}
+      </div>
     </section>
 
     <!-- Custom Providers -->
@@ -433,100 +451,176 @@
       <section class="space-y-6">
         <div>
           <h2 class="text-sm font-semibold text-foreground uppercase tracking-wider">Agent Models</h2>
-          <p class="text-xs text-muted-foreground mt-1">Configure which model each agent uses. Agents are routed automatically based on task labels.</p>
+          <p class="text-xs text-muted-foreground mt-1">Configure which model each agent uses.</p>
         </div>
 
         {#each ['core', 'specialist', 'quality'] as category}
           {@const agents = getAgentsByCategory(category)}
           {#if agents.length > 0}
-            <div class="space-y-3">
-              <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <div class="space-y-2">
+              <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2 mb-3">
                 {#if category === 'core'}
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">bolt</span>
                 {:else if category === 'specialist'}
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                  <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">code</span>
                 {:else}
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">verified</span>
                 {/if}
                 {CATEGORY_LABELS[category]}
               </h3>
 
+              <!-- Table header -->
+              <div class="grid grid-cols-[140px_1fr_1fr_80px_100px] gap-3 px-4 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                <span>Agent</span>
+                <span>Provider</span>
+                <span>Model</span>
+                <span>Temp</span>
+                <span>Max Tokens</span>
+              </div>
+
               {#each agents as agentMeta}
                 {@const agent = config.agents[agentMeta.key]}
                 {#if agent}
-                  <div class="p-4 rounded-xl border border-border bg-card">
-                    <div class="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 class="text-sm font-medium text-foreground">{agentMeta.label} Agent</h4>
-                        <p class="text-[10px] text-muted-foreground">{agentMeta.description}</p>
-                      </div>
-                      <Badge variant={category === 'core' ? 'default' : category === 'specialist' ? 'secondary' : 'outline'}>
+                  <div class="grid grid-cols-[140px_1fr_1fr_80px_100px] gap-3 items-center px-4 py-3 rounded-xl border border-border bg-card">
+                    <!-- Agent info -->
+                    <div class="flex items-center gap-2">
+                      <Badge variant={category === 'core' ? 'default' : category === 'specialist' ? 'secondary' : 'outline'} class="text-[10px] px-1.5">
                         {agentMeta.key}
                       </Badge>
+                      <span class="text-xs font-medium text-foreground">{agentMeta.label}</span>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-3">
-                      <div>
-                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Provider</label>
-                        <Select.Root type="single" bind:value={agent.provider}>
-                          <Select.Trigger class="w-full">
-                            {getProviderDisplayName(agent.provider)}
-                          </Select.Trigger>
-                          <Select.Content>
-                            {#each getAllProviderKeys() as p}
-                              <Select.Item value={p} label={getProviderDisplayName(p)}>{getProviderDisplayName(p)}</Select.Item>
-                            {/each}
-                          </Select.Content>
-                        </Select.Root>
-                      </div>
+                    <!-- Provider combobox -->
+                    <div>
+                      <Popover.Root open={providerOpen[agentMeta.key] ?? false} onOpenChange={(v) => setProviderOpen(agentMeta.key, v)}>
+                        <Popover.Trigger>
+                          {#snippet child({ props })}
+                            <Button
+                              {...props}
+                              variant="outline"
+                              size="sm"
+                              class="w-full justify-between h-8 text-xs"
+                              role="combobox"
+                              aria-expanded={providerOpen[agentMeta.key] ?? false}
+                            >
+                              <span class="truncate">{getProviderDisplayName(agent.provider)}</span>
+                              <ChevronsUpDownIcon class="ml-1 size-3 shrink-0 opacity-50" />
+                            </Button>
+                          {/snippet}
+                        </Popover.Trigger>
+                        <Popover.Content class="w-[200px] p-0" align="start">
+                          <Command.Root>
+                            <Command.Input placeholder="Search provider..." class="h-8 text-xs" />
+                            <Command.List>
+                              <Command.Empty>No provider found.</Command.Empty>
+                              <Command.Group>
+                                {#each getAllProviderKeys() as p}
+                                  <Command.Item
+                                    value={p}
+                                    onSelect={() => {
+                                      agent.provider = p;
+                                      setProviderOpen(agentMeta.key, false);
+                                    }}
+                                  >
+                                    <CheckIcon class={cn("mr-2 size-3", agent.provider !== p && "text-transparent")} />
+                                    {getProviderDisplayName(p)}
+                                  </Command.Item>
+                                {/each}
+                              </Command.Group>
+                            </Command.List>
+                          </Command.Root>
+                        </Popover.Content>
+                      </Popover.Root>
+                    </div>
 
-                      <div>
-                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Model</label>
-                        {#if models[agent.provider] && models[agent.provider].length > 0}
-                          <Select.Root type="single" bind:value={agent.model}>
-                            <Select.Trigger class="w-full font-mono text-xs">
-                              {models[agent.provider]?.find((m) => m.id === agent.model)?.name ?? agent.model}
-                            </Select.Trigger>
-                            <Select.Content>
-                              {#each models[agent.provider] as model}
-                                <Select.Item value={model.id} label={model.name}>{model.name}</Select.Item>
-                              {/each}
-                              {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
-                                <Select.Item value={agent.model} label={agent.model}>{agent.model}</Select.Item>
-                              {/if}
-                            </Select.Content>
-                          </Select.Root>
-                        {:else}
-                          <Input
-                            type="text"
-                            bind:value={agent.model}
-                            placeholder="Model ID (e.g. gpt-4o)"
-                            class="font-mono"
-                          />
-                        {/if}
-                      </div>
-
-                      <div>
-                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Temperature</label>
+                    <!-- Model combobox -->
+                    <div>
+                      {#if models[agent.provider] && models[agent.provider].length > 0}
+                        <Popover.Root open={modelOpen[agentMeta.key] ?? false} onOpenChange={(v) => setModelOpen(agentMeta.key, v)}>
+                          <Popover.Trigger>
+                            {#snippet child({ props })}
+                              <Button
+                                {...props}
+                                variant="outline"
+                                size="sm"
+                                class="w-full justify-between h-8 font-mono text-[11px]"
+                                role="combobox"
+                                aria-expanded={modelOpen[agentMeta.key] ?? false}
+                              >
+                                <span class="truncate">{models[agent.provider]?.find((m) => m.id === agent.model)?.name ?? agent.model}</span>
+                                <ChevronsUpDownIcon class="ml-1 size-3 shrink-0 opacity-50" />
+                              </Button>
+                            {/snippet}
+                          </Popover.Trigger>
+                          <Popover.Content class="w-[280px] p-0" align="start">
+                            <Command.Root>
+                              <Command.Input placeholder="Search model..." class="h-8 text-xs" />
+                              <Command.List>
+                                <Command.Empty>No model found.</Command.Empty>
+                                <Command.Group>
+                                  {#each models[agent.provider] as model}
+                                    <Command.Item
+                                      value={model.id}
+                                      onSelect={() => {
+                                        agent.model = model.id;
+                                        setModelOpen(agentMeta.key, false);
+                                      }}
+                                    >
+                                      <CheckIcon class={cn("mr-2 size-3", agent.model !== model.id && "text-transparent")} />
+                                      {model.name}
+                                    </Command.Item>
+                                  {/each}
+                                  {#if !models[agent.provider]?.some((m) => m.id === agent.model)}
+                                    <Command.Item
+                                      value={agent.model}
+                                      onSelect={() => setModelOpen(agentMeta.key, false)}
+                                    >
+                                      <CheckIcon class="mr-2 size-3" />
+                                      {agent.model}
+                                    </Command.Item>
+                                  {/if}
+                                </Command.Group>
+                              </Command.List>
+                            </Command.Root>
+                          </Popover.Content>
+                        </Popover.Root>
+                      {:else}
                         <Input
-                          type="number"
-                          bind:value={agent.temperature}
-                          min="0"
-                          max="2"
-                          step="0.1"
+                          type="text"
+                          bind:value={agent.model}
+                          placeholder="Model ID"
+                          class="font-mono h-8 text-[11px]"
+                          aria-label="Model"
                         />
-                      </div>
+                      {/if}
+                    </div>
 
-                      <div>
-                        <label class="block text-[10px] font-medium text-muted-foreground mb-1 uppercase">Max Tokens</label>
-                        <Input
-                          type="number"
-                          bind:value={agent.maxOutputTokens}
-                          min="100"
-                          max="128000"
-                          step="100"
-                        />
-                      </div>
+                    <!-- Temperature -->
+                    <div>
+                      <Input
+                        id="temp-{agentMeta.key}"
+                        type="number"
+                        bind:value={agent.temperature}
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        class="h-8 text-xs"
+                        aria-label="Temperature"
+                      />
+                    </div>
+
+                    <!-- Max Tokens -->
+                    <div>
+                      <Input
+                        id="tokens-{agentMeta.key}"
+                        type="number"
+                        bind:value={agent.maxOutputTokens}
+                        min="100"
+                        max="128000"
+                        step="100"
+                        class="h-8 text-xs"
+                        aria-label="Max Tokens"
+                      />
                     </div>
                   </div>
                 {/if}

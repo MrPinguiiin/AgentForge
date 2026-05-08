@@ -14,6 +14,8 @@
     onTaskSelect,
     onSelectAll,
     onStartSelected,
+    onExecuteBatch,
+    onCreateTask,
   }: {
     status: TaskStatus;
     title: string;
@@ -25,13 +27,16 @@
     onTaskSelect?: (task: Task) => void;
     onSelectAll?: () => void;
     onStartSelected?: () => void;
+    onExecuteBatch?: () => void;
+    onCreateTask?: () => void;
   } = $props();
 
   // Find column config for styling
   import { COLUMN_CONFIG } from '../../types/index.js';
   const colConfig = COLUMN_CONFIG.find(c => c.id === status);
   const isHighlight = colConfig?.highlight ?? false;
-  const isBacklog = status === 'backlog';
+  const isBacklog = $derived(status === 'backlog');
+  const isPlanning = $derived(status === 'planning');
 
   let items = $state<Task[]>([]);
 
@@ -79,6 +84,19 @@
     </div>
   </div>
 
+  <!-- Create Task Button (Backlog only) -->
+  {#if isBacklog}
+    <div class="mb-3 px-1">
+      <button
+        class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-sm text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 transition-colors"
+        onclick={() => onCreateTask?.()}
+      >
+        <span class="material-symbols-outlined text-[16px]">add</span>
+        Create Task
+      </button>
+    </div>
+  {/if}
+
   <!-- Batch Start Button (Backlog only) -->
   {#if isBacklog && selectedCount > 0}
     <div class="mb-3 px-1">
@@ -88,6 +106,42 @@
       >
         <span class="material-symbols-outlined text-[16px]">rocket_launch</span>
         Start {selectedCount} {selectedCount === 1 ? 'Task' : 'Tasks'}
+      </button>
+    </div>
+  {/if}
+
+  <!-- Backlog: batch planning progress -->
+  {#if isBacklog}
+    {@const planningQueuedCount = items.filter(t => t.status === 'planning_queued').length}
+    {@const plannedCount = items.filter(t => t.status === 'planned').length}
+    {@const totalBatchCount = planningQueuedCount + plannedCount}
+    {#if totalBatchCount > 0}
+      <div class="mb-3 px-1">
+        <div class="px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold text-primary uppercase tracking-wider">Planning</span>
+            <span class="text-[10px] text-muted-foreground">{plannedCount}/{totalBatchCount}</span>
+          </div>
+          <div class="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+            <div
+              class="h-full bg-primary rounded-full transition-all duration-500"
+              style="width: {totalBatchCount > 0 ? (plannedCount / totalBatchCount) * 100 : 0}%"
+            ></div>
+          </div>
+        </div>
+      </div>
+    {/if}
+  {/if}
+
+  <!-- Execute All Button (Planning column only) -->
+  {#if isPlanning && tasks.length > 0}
+    <div class="mb-3 px-1">
+      <button
+        class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+        onclick={() => onExecuteBatch?.()}
+      >
+        <span class="material-symbols-outlined text-[16px]">play_arrow</span>
+        Execute All ({tasks.length})
       </button>
     </div>
   {/if}

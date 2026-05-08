@@ -320,7 +320,7 @@
             Loading...
           </div>
         {:else}
-          <KanbanBoard />
+          <KanbanBoard onCreateTask={() => (showAddTask = true)} />
         {/if}
       </div>
     </main>

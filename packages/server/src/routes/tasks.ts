@@ -43,6 +43,12 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
   const app = new Hono();
   const taskManager = orchestrator.getTaskManager();
 
+  // Helper: enrich a task with its labels from task_labels table
+  async function enrichWithLabels<T extends { id: string }>(task: T): Promise<T & { labels: any[] }> {
+    const labels = await taskManager.getTaskLabels(task.id);
+    return { ...task, labels };
+  }
+
   // List tasks
   app.get("/", async (c) => {
     const projectId = c.req.query("projectId");
@@ -53,7 +59,8 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
     }
 
     const tasks = await taskManager.listTasks(projectId, { status });
-    return c.json({ tasks });
+    const enriched = await Promise.all(tasks.map(enrichWithLabels));
+    return c.json({ tasks: enriched });
   });
 
   // Create task
@@ -68,7 +75,8 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
 
     orchestrator.emit("task:created", task);
 
-    return c.json({ task }, 201);
+    const enriched = await enrichWithLabels(task);
+    return c.json({ task: enriched }, 201);
   });
 
   // Get task detail
@@ -82,8 +90,9 @@ export function createTaskRoutes(orchestrator: Orchestrator) {
 
     const files = await taskManager.getTaskFiles(id);
     const runs = await taskManager.getAgentRuns(id);
+    const enriched = await enrichWithLabels(task);
 
-    return c.json({ task, files, runs });
+    return c.json({ task: enriched, files, runs });
   });
 
   // Update task

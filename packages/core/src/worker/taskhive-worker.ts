@@ -21,7 +21,9 @@ import {
   buildExecutionPrompt,
   buildReviewPrompt,
   buildQAPrompt,
+  buildDependencyAnalysisPrompt,
 } from "./prompt-templates.js";
+import { ProjectScanner } from "./project-scanner.js";
 import EventEmitter from "eventemitter3";
 import { log } from "./logger.js";
 
@@ -147,7 +149,7 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
    * Queue a planning job for a task.
    * Per docs Flow 2: Run Planning
    */
-  async queuePlanning(taskId: string, settings?: { reviewMode?: "auto" | "human"; approvalMode?: "auto" | "manual" }): Promise<schema.Job> {
+  async queuePlanning(taskId: string, settings?: { reviewMode?: "auto" | "human"; approvalMode?: "auto" | "manual"; batchId?: string }): Promise<schema.Job> {
     // Validate task is in backlog
     const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
     if (!task) throw new Error(`Task not found: ${taskId}`);
@@ -155,12 +157,13 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       throw new Error(`Task must be in backlog to run planning. Current status: ${task.status}`);
     }
 
-    // Store review/approval settings on the task
-    if (settings) {
-      await this.db.update(schema.tasks).set({
-        reviewMode: settings.reviewMode ?? "auto",
-        approvalMode: settings.approvalMode ?? "auto",
-      }).where(eq(schema.tasks.id, taskId));
+    // Store review/approval settings and batchId on the task
+    const taskUpdates: Record<string, unknown> = {};
+    if (settings?.reviewMode) taskUpdates.reviewMode = settings.reviewMode;
+    if (settings?.approvalMode) taskUpdates.approvalMode = settings.approvalMode;
+    if (settings?.batchId) taskUpdates.batchId = settings.batchId;
+    if (Object.keys(taskUpdates).length > 0) {
+      await this.db.update(schema.tasks).set(taskUpdates).where(eq(schema.tasks.id, taskId));
     }
 
     // Get project
@@ -174,8 +177,10 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
     // Create task run record
     const run = await this.createRun(taskId, "planning", "plan");
 
-    // Update task status to planning
-    await this.updateTaskStatus(taskId, "planning");
+    // Update task status: batch tasks go to planning_queued (stay in backlog visually),
+    // single tasks go directly to planning
+    const planningStatus = settings?.batchId ? "planning_queued" : "planning";
+    await this.updateTaskStatus(taskId, planningStatus as schema.TaskStatus);
 
     // Enqueue job
     const job = await this.queue.addJob("planning", taskId, {
@@ -198,17 +203,19 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
   /**
    * Queue batch planning for multiple tasks.
    * All tasks share the same review/approval settings.
+   * Tasks stay in backlog visually (planning_queued status) until ALL planning completes.
    */
   async queueBatchPlanning(
     taskIds: string[],
     settings: { reviewMode: "auto" | "human"; approvalMode: "auto" | "manual" },
-  ): Promise<{ queued: string[]; skipped: { taskId: string; reason: string }[] }> {
+  ): Promise<{ queued: string[]; skipped: { taskId: string; reason: string }[]; batchId: string }> {
+    const batchId = nanoid();
     const queued: string[] = [];
     const skipped: { taskId: string; reason: string }[] = [];
 
     for (const taskId of taskIds) {
       try {
-        await this.queuePlanning(taskId, settings);
+        await this.queuePlanning(taskId, { ...settings, batchId });
         queued.push(taskId);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -217,8 +224,8 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       }
     }
 
-    log.info("BATCH", `Batch planning: ${queued.length} queued, ${skipped.length} skipped`);
-    return { queued, skipped };
+    log.info("BATCH", `Batch ${batchId}: ${queued.length} queued, ${skipped.length} skipped`);
+    return { queued, skipped, batchId };
   }
 
   /**
@@ -594,6 +601,262 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       });
   }
 
+  // ===== Batch Orchestration =====
+
+  /**
+   * Finalize a batch after all planning is complete.
+   * Runs AI dependency analysis, sorts tasks, moves to planning column.
+   */
+  async finalizeBatch(batchId: string): Promise<void> {
+    log.info("BATCH", `Finalizing batch ${batchId}...`);
+
+    // Get all planned tasks in this batch
+    const batchTasks = await this.db
+      .select()
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.batchId, batchId), eq(schema.tasks.status, "planned")));
+
+    if (batchTasks.length === 0) {
+      log.warn("BATCH", `No planned tasks in batch ${batchId}`);
+      return;
+    }
+
+    // Get plans for each task
+    const tasksWithPlans: Array<{
+      id: string;
+      title: string;
+      description: string | null;
+      plan: PlanningResult;
+    }> = [];
+
+    for (const task of batchTasks) {
+      const plan = await this.getTaskPlan(task.id);
+      if (plan?.planJson) {
+        tasksWithPlans.push({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          plan: plan.planJson as PlanningResult,
+        });
+      }
+    }
+
+    // Run AI dependency analysis (only if more than 1 task)
+    let executionOrder: string[] = tasksWithPlans.map((t) => t.id);
+
+    if (tasksWithPlans.length > 1) {
+      try {
+        executionOrder = await this.analyzeDependencies(tasksWithPlans, batchTasks[0].projectId);
+        log.info("BATCH", `AI dependency order: ${executionOrder.map((id) => id.slice(0, 8)).join(" → ")}`);
+      } catch (err) {
+        log.warn("BATCH", `Dependency analysis failed, using default order: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // Update execution order on each task and move to planning column
+    for (let i = 0; i < executionOrder.length; i++) {
+      const taskId = executionOrder[i];
+      await this.db.update(schema.tasks).set({
+        executionOrder: i + 1,
+        sortOrder: i,
+      }).where(eq(schema.tasks.id, taskId));
+      await this.updateTaskStatus(taskId, "planning");
+    }
+
+    // Also move any tasks that weren't in the execution order (edge case)
+    for (const task of batchTasks) {
+      if (!executionOrder.includes(task.id)) {
+        await this.db.update(schema.tasks).set({ executionOrder: executionOrder.length + 1 }).where(eq(schema.tasks.id, task.id));
+        await this.updateTaskStatus(task.id, "planning");
+      }
+    }
+
+    log.info("BATCH", `Batch ${batchId} finalized: ${executionOrder.length} tasks ready in planning column`);
+
+    // If auto-approve mode, start sequential execution automatically
+    const [sampleTask] = batchTasks;
+    if (sampleTask?.approvalMode === "auto") {
+      log.info("BATCH", `Auto-approve mode — starting sequential execution for batch ${batchId}`);
+      await this.executeNextInBatch(batchId);
+    }
+  }
+
+  /**
+   * Analyze dependencies between tasks using AI.
+   * Returns task IDs in optimal execution order.
+   */
+  private async analyzeDependencies(
+    tasks: Array<{ id: string; title: string; description: string | null; plan: PlanningResult }>,
+    projectId: string,
+  ): Promise<string[]> {
+    // Get project for context
+    const [project] = await this.db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+
+    // Scan project for context
+    const projectContext = await ProjectScanner.scan(project.rootPath);
+
+    // Build dependency analysis prompt
+    const prompt = buildDependencyAnalysisPrompt(tasks, project.rootPath, projectContext.summary);
+
+    // Run AI analysis
+    const runner = new OpenCodeRunner(this.openCodeServer);
+    const model = await this.resolveModelForAgent("planner");
+    const result = await runner.run({
+      cwd: project.rootPath,
+      agent: "plan",
+      prompt,
+      model,
+      timeout: 60000, // 1 minute should be enough for analysis
+    });
+
+    if (!result.stdout || result.stdout.trim().length === 0) {
+      throw new Error("Dependency analysis returned empty response");
+    }
+
+    // Parse result
+    const analysisResult = parsePlanningJson(result.stdout) as Record<string, unknown>;
+    const executionOrder = analysisResult.execution_order as string[];
+
+    if (!Array.isArray(executionOrder) || executionOrder.length === 0) {
+      throw new Error("Invalid execution_order in dependency analysis result");
+    }
+
+    // Validate all task IDs are present
+    const taskIds = new Set(tasks.map((t) => t.id));
+    const validOrder = executionOrder.filter((id) => taskIds.has(id));
+
+    // Add any missing tasks at the end
+    for (const task of tasks) {
+      if (!validOrder.includes(task.id)) {
+        validOrder.push(task.id);
+      }
+    }
+
+    return validOrder;
+  }
+
+  /**
+   * Execute the next task in a batch sequentially.
+   * Finds the next task in planning status with the lowest executionOrder.
+   */
+  async executeNextInBatch(batchId: string): Promise<void> {
+    // Find next task to execute (planning status, lowest executionOrder)
+    const [nextTask] = await this.db
+      .select()
+      .from(schema.tasks)
+      .where(and(
+        eq(schema.tasks.batchId, batchId),
+        eq(schema.tasks.status, "planning"),
+      ))
+      .orderBy(schema.tasks.executionOrder)
+      .limit(1);
+
+    if (!nextTask) {
+      log.info("BATCH", `Batch ${batchId}: no more tasks to execute — batch complete`);
+      return;
+    }
+
+    log.info("BATCH", `Batch ${batchId}: executing next task "${nextTask.title}" (order=${nextTask.executionOrder})`);
+
+    // Check risk rules — only block if plan explicitly says needs_human=true
+    // (user chose auto mode, so we respect that for label-based risk)
+    const plan = await this.getTaskPlan(nextTask.id);
+    const planData = plan?.planJson as PlanningResult | null;
+
+    if (planData?.needs_human) {
+      log.info("BATCH", `Task ${nextTask.id} — AI flagged needs_human=true, stopping for human review`);
+      await this.db.update(schema.tasks).set({ needsHumanReason: "plan_review" }).where(eq(schema.tasks.id, nextTask.id));
+      await this.updateTaskStatus(nextTask.id, "needs_human");
+      return; // Stop batch execution — human must intervene
+    }
+
+    // Auto-approve and execute
+    if (plan) {
+      await this.db.update(schema.taskPlans).set({ approved: true, approvedAt: new Date() }).where(eq(schema.taskPlans.id, plan.id));
+    }
+    await this.updateTaskStatus(nextTask.id, "ready");
+
+    try {
+      await this.approvePlan(nextTask.id);
+    } catch (err) {
+      log.error("BATCH", `Failed to approve task ${nextTask.id}: ${err instanceof Error ? err.message : String(err)}`);
+      await this.updateTaskStatus(nextTask.id, "failed");
+      // Continue with next task in batch
+      await this.executeNextInBatch(batchId);
+    }
+  }
+
+  /**
+   * Start sequential execution of a batch from the planning column.
+   * Called by user clicking "Execute All" or automatically in auto-approve mode.
+   */
+  async executeBatch(batchId: string): Promise<void> {
+    log.info("BATCH", `Starting batch execution for ${batchId}`);
+    await this.executeNextInBatch(batchId);
+  }
+
+  /**
+   * Get batch status summary.
+   */
+  async getBatchStatus(batchId: string): Promise<{
+    batchId: string;
+    total: number;
+    planning_queued: number;
+    planned: number;
+    planning: number;
+    in_progress: number;
+    done: number;
+    failed: number;
+    other: number;
+  }> {
+    const tasks = await this.db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.batchId, batchId));
+
+    const counts = {
+      batchId,
+      total: tasks.length,
+      planning_queued: 0,
+      planned: 0,
+      planning: 0,
+      in_progress: 0,
+      done: 0,
+      failed: 0,
+      other: 0,
+    };
+
+    for (const t of tasks) {
+      const s = t.status as string;
+      if (s === "planning_queued") counts.planning_queued++;
+      else if (s === "planned") counts.planned++;
+      else if (s === "planning") counts.planning++;
+      else if (s === "in_progress") counts.in_progress++;
+      else if (s === "done") counts.done++;
+      else if (s === "failed") counts.failed++;
+      else counts.other++;
+    }
+
+    return counts;
+  }
+
+  /**
+   * Reorder tasks within a batch.
+   */
+  async reorderBatch(batchId: string, taskIds: string[]): Promise<void> {
+    for (let i = 0; i < taskIds.length; i++) {
+      await this.db.update(schema.tasks).set({
+        executionOrder: i + 1,
+        sortOrder: i,
+      }).where(and(
+        eq(schema.tasks.id, taskIds[i]),
+        eq(schema.tasks.batchId, batchId),
+      ));
+    }
+    log.info("BATCH", `Reordered batch ${batchId}: ${taskIds.length} tasks`);
+  }
+
   // ===== Job Processors =====
 
   /**
@@ -614,7 +877,18 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
 
     log.planningStart(taskId, projectPath);
 
-    // Build planning prompt
+    // Scan project for context
+    log.info("PLANNING", "Scanning project for context...");
+    const projectContext = await ProjectScanner.scan(projectPath);
+    log.info("PLANNING", `Project scan: ${projectContext.fileCount} files, framework=${projectContext.framework}`);
+
+    // Build sibling tasks context
+    const siblingContext = await this.buildSiblingTasksContext(taskId, payload.projectId as string);
+    if (siblingContext) {
+      log.info("PLANNING", `Sibling context: ${siblingContext.split("\n").length} lines`);
+    }
+
+    // Build planning prompt with context
     const prompt = buildPlanningPrompt(
       {
         title: payload.title as string,
@@ -623,6 +897,8 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       },
       { name: projectName, rootPath: projectPath },
       labels,
+      projectContext.summary,
+      siblingContext,
     );
 
     log.planningPromptBuilt(taskId, prompt.length);
@@ -706,33 +982,59 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       // Read the task's approval/review settings
       const [freshTask] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
       const approvalMode = freshTask?.approvalMode ?? "auto";
+      const taskBatchId = freshTask?.batchId;
 
       // Store recommended agent
       await this.db.update(schema.tasks).set({
         agentType: planData.recommended_agent as schema.AgentType,
       }).where(eq(schema.tasks.id, taskId));
 
-      // Determine next column: risk rules always override settings
-      const isHighRisk = planData.needs_human || this.requiresHumanApproval(planData, labels);
+      // ===== BATCH TASK: move to "planned", wait for all batch tasks to complete =====
+      if (taskBatchId) {
+        log.info("PLANNING", `Batch task — moving to 'planned', checking batch ${taskBatchId} completion`);
+        await this.updateTaskStatus(taskId, "planned");
+        this.emit("task:moved", taskId, "planning_queued", "planned");
 
-      if (isHighRisk) {
-        // High risk or AI flagged needs_human → always stop for human review
-        const reason = planData.needs_human ? "Plan flagged needs_human=true" : `High risk detected (risk=${planData.risk_level}, labels=[${labels.join(",")}])`;
-        log.planningNeedsHuman(taskId, reason);
+        // Check if all tasks in this batch are now planned (or failed)
+        const batchTasks = await this.db
+          .select({ id: schema.tasks.id, status: schema.tasks.status })
+          .from(schema.tasks)
+          .where(eq(schema.tasks.batchId, taskBatchId));
+
+        const allDone = batchTasks.every(
+          (t) => t.status === "planned" || t.status === "failed" || t.status === "cancelled",
+        );
+        const plannedCount = batchTasks.filter((t) => t.status === "planned").length;
+
+        log.info("PLANNING", `Batch ${taskBatchId}: ${plannedCount}/${batchTasks.length} planned, allDone=${allDone}`);
+
+        if (allDone && plannedCount > 0) {
+          // All planning complete → finalize batch (dependency analysis + move to planning column)
+          await this.finalizeBatch(taskBatchId);
+        }
+
+        this.emit("planning:completed", taskId, planData);
+        return { success: true, data: planData };
+      }
+
+      // ===== SINGLE TASK (no batch): existing behavior =====
+      // Risk check: only block for needs_human=true from AI.
+      // Label-based risk (risk:high) is informational when user chose auto mode.
+      const aiNeedsHuman = planData.needs_human === true;
+
+      if (aiNeedsHuman) {
+        log.planningNeedsHuman(taskId, "Plan flagged needs_human=true");
         await this.db.update(schema.tasks).set({ needsHumanReason: "plan_review" }).where(eq(schema.tasks.id, taskId));
         await this.updateTaskStatus(taskId, "needs_human");
         this.emit("task:moved", taskId, "planning", "needs_human");
       } else if (approvalMode === "manual") {
-        // Manual approval → stop for human to approve plan
         log.info("PLANNING", `Manual approval mode — moving to needs_human (plan_review)`);
         await this.db.update(schema.tasks).set({ needsHumanReason: "plan_review" }).where(eq(schema.tasks.id, taskId));
         await this.updateTaskStatus(taskId, "needs_human");
         this.emit("task:moved", taskId, "planning", "needs_human");
       } else {
-        // Auto approval → directly approve and queue execution
         log.info("PLANNING", `Auto approval mode — auto-approving plan and queueing execution`);
         log.planningComplete(taskId, "in_progress");
-        // Auto-approve the plan inline (avoid status validation issues)
         const [plan] = await this.db
           .select()
           .from(schema.taskPlans)
@@ -742,7 +1044,6 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         if (plan) {
           await this.db.update(schema.taskPlans).set({ approved: true, approvedAt: new Date() }).where(eq(schema.taskPlans.id, plan.id));
         }
-        // Move to ready temporarily so approvePlan() can pick it up
         await this.updateTaskStatus(taskId, "ready");
         try {
           await this.approvePlan(taskId);
@@ -806,7 +1107,18 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         log.warn("EXECUTION", `Project is not a git repository; executing directly in ${projectPath}`);
       }
 
-      // 2. Build execution prompt
+      // 2. Scan project for context (re-scan to capture any changes from other tasks)
+      log.info("EXECUTION", "Scanning project for context...");
+      const execProjectContext = await ProjectScanner.scan(projectPath);
+      log.info("EXECUTION", `Project scan: ${execProjectContext.fileCount} files, framework=${execProjectContext.framework}`);
+
+      // Build sibling tasks context
+      const execSiblingContext = await this.buildSiblingTasksContext(taskId, payload.projectId as string);
+      if (execSiblingContext) {
+        log.info("EXECUTION", `Sibling context: ${execSiblingContext.split("\n").length} lines`);
+      }
+
+      // Build execution prompt with context
       const prompt = buildExecutionPrompt(
         {
           title: payload.title as string,
@@ -817,6 +1129,8 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         branchInfo.name,
         agentName,
         projectPath,
+        execProjectContext.summary,
+        execSiblingContext,
       );
 
       // 3. Run OpenCode agent
@@ -935,7 +1249,14 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       const plan = await this.getTaskPlan(taskId);
       const planData = plan?.planJson as PlanningResult | null;
 
-      // Build review prompt
+      // Scan project for context
+      log.info("REVIEW", "Scanning project for context...");
+      const reviewProjectContext = await ProjectScanner.scan(projectPath);
+
+      // Build sibling tasks context
+      const reviewSiblingContext = await this.buildSiblingTasksContext(taskId, payload.projectId as string || "");
+
+      // Build review prompt with context
       const prompt = buildReviewPrompt(
         {
           title: payload.title as string,
@@ -945,16 +1266,18 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         gitDiff,
         planData,
         projectPath,
+        reviewProjectContext.summary,
+        reviewSiblingContext,
       );
 
-      // Run review agent
+      // Run review agent (uses "build" agent in OpenCode — no dedicated review agent exists)
       const runner = new OpenCodeRunner(this.openCodeServer);
       this.activeRunners.set(taskId, runner);
 
       const reviewModel = await this.resolveModelForAgent("reviewer");
       const result = await runner.run({
         cwd: projectPath,
-        agent: "review",
+        agent: "build",
         prompt,
         model: reviewModel,
         timeout: this.config.reviewTimeout,
@@ -977,11 +1300,43 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
 
       log.reviewComplete(taskId, result.stdout.length);
 
-      // Auto-queue QA after review (auto review mode means full auto pipeline)
+      // Parse review verdict to decide next step
+      let verdictApproved = true; // default to approved if can't parse
       try {
-        await this.acceptReviewAndQA(taskId);
-      } catch (qaErr) {
-        log.warn("REVIEW", `Auto-queue QA failed: ${qaErr instanceof Error ? qaErr.message : String(qaErr)}`);
+        if (result.stdout && result.stdout.trim().length > 0) {
+          const reviewResult = parsePlanningJson(result.stdout) as Record<string, unknown>;
+          verdictApproved = reviewResult.verdict === "approve";
+          const criteriaMet = reviewResult.acceptance_criteria_met !== false;
+
+          log.info("REVIEW", `Verdict: ${String(reviewResult.verdict)}, criteria_met: ${criteriaMet}`);
+
+          if (!verdictApproved || !criteriaMet) {
+            log.info("REVIEW", `Review REJECTED — verdict=${String(reviewResult.verdict)}, criteria_met=${criteriaMet}`);
+            if (Array.isArray(reviewResult.issues) && reviewResult.issues.length > 0) {
+              log.info("REVIEW", `Issues: ${JSON.stringify(reviewResult.issues)}`);
+            }
+          }
+        } else {
+          log.warn("REVIEW", "Review returned empty response");
+        }
+      } catch {
+        log.warn("REVIEW", "Could not parse review verdict JSON — defaulting to approved");
+      }
+
+      // Route based on verdict
+      if (verdictApproved) {
+        // Review approved → queue QA
+        try {
+          await this.acceptReviewAndQA(taskId);
+        } catch (qaErr) {
+          log.warn("REVIEW", `Auto-queue QA failed: ${qaErr instanceof Error ? qaErr.message : String(qaErr)}`);
+        }
+      } else {
+        // Review rejected → move to needs_human for code review
+        log.info("REVIEW", "Review rejected — moving to needs_human (code_review) for human decision");
+        await this.db.update(schema.tasks).set({ needsHumanReason: "code_review" }).where(eq(schema.tasks.id, taskId));
+        await this.updateTaskStatus(taskId, "needs_human");
+        this.emit("task:moved", taskId, "in_review", "needs_human");
       }
 
       this.emit("review:completed", taskId, result.stdout);
@@ -1013,7 +1368,18 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       const plan = await this.getTaskPlan(taskId);
       const planData = plan?.planJson as PlanningResult | null;
 
-      // Build QA prompt
+      // Scan project for context (see what files actually exist after execution)
+      log.info("QA", "Scanning project for context...");
+      const qaProjectContext = await ProjectScanner.scan(projectPath);
+      log.info("QA", `Project scan: ${qaProjectContext.fileCount} files, framework=${qaProjectContext.framework}`);
+
+      // Build sibling tasks context
+      const qaSiblingContext = await this.buildSiblingTasksContext(taskId, payload.projectId as string || "");
+      if (qaSiblingContext) {
+        log.info("QA", `Sibling context: ${qaSiblingContext.split("\n").length} lines`);
+      }
+
+      // Build QA prompt with full context
       const prompt = buildQAPrompt(
         {
           title: payload.title as string,
@@ -1022,16 +1388,18 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
         },
         planData,
         projectPath,
+        qaProjectContext.summary,
+        qaSiblingContext,
       );
 
-      // Run QA agent
+      // Run QA agent (uses "build" agent in OpenCode — no dedicated QA agent exists)
       const runner = new OpenCodeRunner(this.openCodeServer);
       this.activeRunners.set(taskId, runner);
 
       const qaModel = await this.resolveModelForAgent("qa");
       const result = await runner.run({
         cwd: projectPath,
-        agent: "qa",
+        agent: "build",
         prompt,
         model: qaModel,
         timeout: this.config.qaTimeout,
@@ -1052,25 +1420,45 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
       // Store QA report
       await this.collector.storeQAReport(taskId, runId, result.stdout);
 
+      // CRITICAL: Empty response = FAIL (not pass)
+      if (!result.stdout || result.stdout.trim().length === 0) {
+        log.warn("QA", "QA agent returned empty response — marking as FAILED");
+        log.qaComplete(taskId, false);
+        await this.updateTaskStatus(taskId, "failed");
+        this.emit("task:moved", taskId, "qa", "failed");
+        this.emit("qa:completed", taskId, "");
+        return { success: false, error: "QA agent returned empty response" };
+      }
+
       // Parse QA result to determine pass/fail
       try {
-        const qaResult = parsePlanningJson(result.stdout);
-        const passed = qaResult.recommendation === "pass" || qaResult.tests_passed;
+        const qaResult = parsePlanningJson(result.stdout) as Record<string, unknown>;
+        // Strict: only pass if recommendation is explicitly "pass" AND tests_passed is true
+        const passed = qaResult.recommendation === "pass" && qaResult.tests_passed !== false;
         log.qaComplete(taskId, !!passed);
+
         if (passed) {
           await this.updateTaskStatus(taskId, "done");
           await this.db.update(schema.tasks).set({ completedAt: new Date() }).where(eq(schema.tasks.id, taskId));
           this.emit("task:moved", taskId, "qa", "done");
         } else {
+          log.info("QA", `QA FAILED: recommendation=${String(qaResult.recommendation)}, tests_passed=${String(qaResult.tests_passed)}`);
+          if (Array.isArray(qaResult.failing_tests) && qaResult.failing_tests.length > 0) {
+            log.info("QA", `Failing tests: ${JSON.stringify(qaResult.failing_tests)}`);
+          }
+          if (qaResult.verification_summary) {
+            log.info("QA", `Summary: ${String(qaResult.verification_summary)}`);
+          }
           await this.updateTaskStatus(taskId, "failed");
           this.emit("task:moved", taskId, "qa", "failed");
         }
       } catch {
-        // If we can't parse, move to done (optimistic)
-        log.warn("QA", "Could not parse QA result JSON, assuming passed");
-        log.qaComplete(taskId, true);
-        await this.updateTaskStatus(taskId, "done");
-        await this.db.update(schema.tasks).set({ completedAt: new Date() }).where(eq(schema.tasks.id, taskId));
+        // If we can't parse the JSON, store the raw output and mark as FAILED
+        // (previously this was optimistic — now we're strict)
+        log.warn("QA", "Could not parse QA result JSON — marking as FAILED (raw output stored as artifact)");
+        log.qaComplete(taskId, false);
+        await this.updateTaskStatus(taskId, "failed");
+        this.emit("task:moved", taskId, "qa", "failed");
       }
 
       this.emit("qa:completed", taskId, result.stdout);
@@ -1110,9 +1498,13 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
   }
 
   private async updateTaskStatus(taskId: string, status: TaskStatus): Promise<void> {
-    // Get old status for logging
-    const [oldTask] = await this.db.select({ status: schema.tasks.status }).from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    // Get old status and batchId for logging and batch chaining
+    const [oldTask] = await this.db.select({
+      status: schema.tasks.status,
+      batchId: schema.tasks.batchId,
+    }).from(schema.tasks).where(eq(schema.tasks.id, taskId));
     const oldStatus = oldTask?.status ?? "unknown";
+    const taskBatchId = oldTask?.batchId;
 
     await this.db.update(schema.tasks).set({
       status,
@@ -1121,6 +1513,123 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
 
     log.taskStatusChanged(taskId, oldStatus, status);
     this.emit("task:moved", taskId, oldStatus, status);
+
+    // Batch chaining: when a batch task reaches done or failed, trigger next task
+    if (taskBatchId && (status === "done" || status === "failed")) {
+      // Use setTimeout to avoid blocking the current job processor
+      setTimeout(async () => {
+        try {
+          await this.executeNextInBatch(taskBatchId);
+        } catch (err) {
+          log.warn("BATCH", `Failed to chain next task in batch ${taskBatchId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }, 500);
+    }
+  }
+
+  /**
+   * Build context about sibling tasks in the same project.
+   * Helps agents understand what other tasks have done or are doing.
+   */
+  private async buildSiblingTasksContext(taskId: string, projectId: string): Promise<string> {
+    try {
+      // Get all tasks in the same project (excluding current task)
+      const allTasks = await this.db
+        .select({
+          id: schema.tasks.id,
+          title: schema.tasks.title,
+          description: schema.tasks.description,
+          status: schema.tasks.status,
+          agentType: schema.tasks.agentType,
+          branch: schema.tasks.branch,
+        })
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.projectId, projectId),
+          ),
+        );
+
+      // Filter out current task and irrelevant statuses
+      const siblings = allTasks.filter(
+        (t) => t.id !== taskId && !["cancelled", "backlog"].includes(t.status),
+      );
+
+      if (siblings.length === 0) return "";
+
+      const lines: string[] = ["RELATED TASKS IN THIS PROJECT:"];
+
+      for (const sibling of siblings) {
+        const statusIcon =
+          sibling.status === "done"
+            ? "✅ [DONE]"
+            : sibling.status === "in_progress" || sibling.status === "coding"
+              ? "⚡ [IN PROGRESS]"
+              : sibling.status === "planning"
+                ? "🧠 [PLANNING]"
+                : sibling.status === "in_review" || sibling.status === "qa"
+                  ? "🔍 [REVIEW/QA]"
+                  : sibling.status === "needs_human"
+                    ? "🖐️ [NEEDS HUMAN]"
+                    : sibling.status === "failed"
+                      ? "❌ [FAILED]"
+                      : `[${sibling.status.toUpperCase()}]`;
+
+        let line = `${statusIcon} "${sibling.title}"`;
+
+        // For done/in_progress tasks, try to get file change info from artifacts
+        if (["done", "in_progress", "in_review", "qa", "needs_human"].includes(sibling.status)) {
+          try {
+            const artifacts = await this.collector.getTaskArtifacts(sibling.id);
+
+            // Get file list from git_diff_stat
+            const diffStat = artifacts.find((a) => a.artifactType === "git_diff_stat");
+            if (diffStat?.content) {
+              // Parse "file | changes" lines from diff stat
+              const fileLines = diffStat.content
+                .split("\n")
+                .filter((l) => l.includes("|"))
+                .map((l) => l.split("|")[0].trim())
+                .filter((f) => f.length > 0);
+
+              if (fileLines.length > 0) {
+                line += `\n   → Files: ${fileLines.join(", ")}`;
+              }
+            }
+
+            // Get summary
+            const summary = artifacts.find((a) => a.artifactType === "final_summary");
+            if (summary?.content) {
+              // Truncate summary to first 200 chars
+              const shortSummary = summary.content.slice(0, 200).replace(/\n/g, " ").trim();
+              if (shortSummary) {
+                line += `\n   → Summary: ${shortSummary}${summary.content.length > 200 ? "..." : ""}`;
+              }
+            }
+          } catch {
+            // Ignore artifact fetch errors
+          }
+        }
+
+        lines.push(line);
+      }
+
+      lines.push("");
+      lines.push(
+        "IMPORTANT: Coordinate with the tasks above. Do NOT duplicate work that is already done.",
+      );
+      lines.push(
+        "If a completed task created files, your code should integrate with those files.",
+      );
+
+      return lines.join("\n");
+    } catch (err) {
+      log.warn(
+        "WORKER",
+        `Failed to build sibling context: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return "";
+    }
   }
 
   /**

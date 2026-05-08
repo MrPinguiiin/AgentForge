@@ -88,7 +88,7 @@ export type {
 } from "./agents/types.js";
 
 // Context
-export { ProjectScanner } from "./context/scanner.js";
+export { ProjectScanner } from "./worker/project-scanner.js";
 export { ContextResolver } from "./context/resolver.js";
 export type { ContextConfig, FrameworkInfo, RelevanceScore } from "./context/types.js";
 export { DEFAULT_CONTEXT_CONFIG } from "./context/types.js";

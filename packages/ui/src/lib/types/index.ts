@@ -2,6 +2,8 @@ export type TaskStatus =
   | 'backlog'
   | 'todo'
   | 'ready'
+  | 'planning_queued'
+  | 'planned'
   | 'planning'
   | 'coding'
   | 'in_progress'
@@ -68,6 +70,8 @@ export interface Task {
   reviewMode?: ReviewMode | null;
   approvalMode?: ApprovalMode | null;
   needsHumanReason?: NeedsHumanReason | null;
+  batchId?: string | null;
+  executionOrder?: number;
   subtasks?: Task[];
   labels?: TaskLabel[];
   createdAt: string;
@@ -123,10 +127,12 @@ export interface ColumnConfig {
   textColor: string;
   icon: string;
   highlight?: boolean;
+  /** Additional statuses that map to this column */
+  extraStatuses?: TaskStatus[];
 }
 
 export const COLUMN_CONFIG: ColumnConfig[] = [
-  { id: 'backlog', title: 'Backlog', dotColor: 'bg-muted-foreground', textColor: 'text-muted-foreground', icon: 'inventory_2' },
+  { id: 'backlog', title: 'Backlog', dotColor: 'bg-muted-foreground', textColor: 'text-muted-foreground', icon: 'inventory_2', extraStatuses: ['planning_queued', 'planned'] },
   { id: 'planning', title: 'Planning', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'psychology', highlight: true },
   { id: 'in_progress', title: 'In Progress', dotColor: 'bg-primary', textColor: 'text-primary', icon: 'sync', highlight: true },
   { id: 'needs_human', title: 'Need Human', dotColor: 'bg-destructive', textColor: 'text-destructive', icon: 'front_hand' },

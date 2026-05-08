@@ -433,11 +433,29 @@ export async function getQueueStats(): Promise<{ stats: Record<string, number> }
   return request<{ stats: Record<string, number> }>('/pipeline/queue/stats');
 }
 
+/** Execute a batch (start sequential execution) */
+export async function executeBatch(batchId: string): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/batch/${batchId}/execute`, { method: 'POST' });
+}
+
+/** Get batch status */
+export async function getBatchStatus(batchId: string): Promise<{ status: Record<string, number> }> {
+  return request(`/pipeline/batch/${batchId}/status`);
+}
+
+/** Reorder tasks in a batch */
+export async function reorderBatch(batchId: string, taskIds: string[]): Promise<PipelineJobResult> {
+  return request<PipelineJobResult>(`/pipeline/batch/${batchId}/reorder`, {
+    method: 'POST',
+    body: JSON.stringify({ taskIds }),
+  });
+}
+
 /** Batch start multiple tasks from backlog */
 export async function batchStartTasks(
   taskIds: string[],
   settings: { reviewMode: 'auto' | 'human'; approvalMode: 'auto' | 'manual' },
-): Promise<{ success: boolean; queued: string[]; skipped: { taskId: string; reason: string }[]; message: string }> {
+): Promise<{ success: boolean; batchId: string; queued: string[]; skipped: { taskId: string; reason: string }[]; message: string }> {
   return request('/pipeline/batch-start', {
     method: 'POST',
     body: JSON.stringify({ taskIds, settings }),

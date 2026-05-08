@@ -11,6 +11,8 @@ export type TaskStatus =
   | "backlog"
   | "todo"
   | "ready"
+  | "planning_queued"
+  | "planned"
   | "planning"
   | "coding"
   | "in_progress"
@@ -119,6 +121,8 @@ export const tasks = sqliteTable("tasks", {
   reviewMode: text("review_mode").$type<"auto" | "human">().default("auto"),
   approvalMode: text("approval_mode").$type<"auto" | "manual">().default("auto"),
   needsHumanReason: text("needs_human_reason").$type<"plan_review" | "code_review" | "high_risk">(),
+  batchId: text("batch_id"),
+  executionOrder: integer("execution_order").notNull().default(0),
   metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
   routedAt: integer("routed_at", { mode: "timestamp" }),
   startedAt: integer("started_at", { mode: "timestamp" }),

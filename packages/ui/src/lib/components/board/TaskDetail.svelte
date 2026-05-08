@@ -143,6 +143,8 @@
 
   const STATUS_META: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: string }> = {
     backlog: { label: 'Backlog', variant: 'secondary', icon: 'inventory_2' },
+    planning_queued: { label: 'Planning...', variant: 'default', icon: 'psychology' },
+    planned: { label: 'Plan Ready', variant: 'default', icon: 'check_circle' },
     ready: { label: 'Ready', variant: 'default', icon: 'bolt' },
     planning: { label: 'Planning', variant: 'default', icon: 'psychology' },
     coding: { label: 'Coding', variant: 'default', icon: 'code' },
@@ -157,7 +159,8 @@
 
   function getStageIndex(status: string): number {
     if (status === 'coding') return PIPELINE_STAGES.findIndex(s => s.id === 'in_progress');
-    if (status === 'ready') return PIPELINE_STAGES.findIndex(s => s.id === 'planning');
+    if (status === 'ready' || status === 'planned') return PIPELINE_STAGES.findIndex(s => s.id === 'planning');
+    if (status === 'planning_queued') return PIPELINE_STAGES.findIndex(s => s.id === 'planning');
     return PIPELINE_STAGES.findIndex(s => s.id === status);
   }
 
@@ -179,7 +182,8 @@
   function getProgressPercent(status: string): number {
     if (status === 'failed' || status === 'cancelled') return 0;
     if (status === 'coding') return getProgressPercent('in_progress');
-    if (status === 'ready') return getProgressPercent('planning');
+    if (status === 'ready' || status === 'planned') return getProgressPercent('planning');
+    if (status === 'planning_queued') return 5; // Just started
     const idx = PIPELINE_STAGES.findIndex(s => s.id === status);
     if (idx < 0) return 0;
     return Math.round((idx / (PIPELINE_STAGES.length - 1)) * 100);
@@ -219,6 +223,49 @@
   let gitDiffStat = $derived(taskArtifacts.find(a => a.artifactType === 'git_diff_stat')?.content ?? '');
   let reviewVerdict = $derived(taskArtifacts.find(a => a.artifactType === 'review_verdict')?.content ?? '');
   let qaReport = $derived(taskArtifacts.find(a => a.artifactType === 'qa_report')?.content ?? '');
+
+  // Parse structured review verdict
+  interface ReviewResult {
+    verdict?: string;
+    acceptance_criteria_results?: Array<{ criterion: string; met: boolean; detail: string }>;
+    issues?: string[];
+    suggestions?: string[];
+    acceptance_criteria_met?: boolean;
+    summary?: string;
+  }
+
+  // Parse structured QA report
+  interface QAResult {
+    test_results?: Array<{ test: string; passed: boolean; detail: string }>;
+    checklist_results?: Array<{ item: string; passed: boolean; detail: string }>;
+    files_verified?: Array<{ file: string; exists: boolean; valid: boolean; detail: string }>;
+    tests_passed?: boolean;
+    failing_tests?: string[];
+    verification_summary?: string;
+    recommendation?: string;
+  }
+
+  function tryParseJson<T>(raw: string): T | null {
+    if (!raw || raw.trim().length === 0) return null;
+    try {
+      return JSON.parse(raw.trim()) as T;
+    } catch {
+      // Try extracting JSON from markdown code fences
+      const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        try { return JSON.parse(fenceMatch[1].trim()) as T; } catch { /* fall through */ }
+      }
+      // Try extracting embedded JSON object
+      const objMatch = raw.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        try { return JSON.parse(objMatch[0]) as T; } catch { /* fall through */ }
+      }
+      return null;
+    }
+  }
+
+  let parsedReview = $derived(tryParseJson<ReviewResult>(reviewVerdict));
+  let parsedQA = $derived(tryParseJson<QAResult>(qaReport));
 
   // ===== Actions =====
 
@@ -430,6 +477,25 @@
                     Run Planning
                   {/if}
                 </Button>
+              {:else if task.status === 'planning_queued'}
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-500/5 border border-amber-500/20 mb-3">
+                  <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[20px] animate-spin">psychology</span>
+                  <div>
+                    <p class="text-sm font-medium text-foreground">Planning in background...</p>
+                    <p class="text-xs text-muted-foreground">AI is analyzing this task. It will move to Planning column when all batch tasks are planned.</p>
+                  </div>
+                </div>
+                {#if streamOutput}
+                  <pre bind:this={streamEl} class="mt-2 p-4 rounded-lg bg-card border border-border text-xs font-mono text-foreground overflow-auto max-h-[60vh] whitespace-pre-wrap">{streamOutput}</pre>
+                {/if}
+              {:else if task.status === 'planned'}
+                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-green-500/5 border border-green-500/20 mb-3">
+                  <span class="material-symbols-outlined text-green-600 dark:text-green-400 text-[20px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                  <div>
+                    <p class="text-sm font-medium text-foreground">Plan ready</p>
+                    <p class="text-xs text-muted-foreground">Waiting for other tasks in batch to finish planning. Will move to Planning column soon.</p>
+                  </div>
+                </div>
               {:else if task.status === 'ready'}
                 <!-- Legacy: redirect to approve flow -->
                 <div class="p-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
@@ -931,17 +997,156 @@
 
               <!-- Review verdict -->
               {#if reviewVerdict}
-                <div class="mt-4 p-3 rounded-lg bg-muted border border-border">
-                  <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Review Verdict</h4>
-                  <pre class="text-[11px] font-mono text-foreground whitespace-pre-wrap">{reviewVerdict}</pre>
+                <div class="mt-4 p-3 rounded-lg border border-border {parsedReview?.verdict === 'approve' ? 'bg-green-500/5 border-green-500/20' : parsedReview?.verdict === 'request_changes' ? 'bg-destructive/5 border-destructive/20' : 'bg-muted'}">
+                  <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Review Verdict</h4>
+                    {#if parsedReview?.verdict}
+                      <Badge variant={parsedReview.verdict === 'approve' ? 'default' : 'destructive'}>
+                        <span class="material-symbols-outlined text-[12px] mr-1" style="font-variation-settings: 'FILL' 1;">
+                          {parsedReview.verdict === 'approve' ? 'check_circle' : 'cancel'}
+                        </span>
+                        {parsedReview.verdict === 'approve' ? 'Approved' : 'Changes Requested'}
+                      </Badge>
+                    {/if}
+                  </div>
+                  {#if parsedReview?.summary}
+                    <p class="text-xs text-foreground mb-2">{parsedReview.summary}</p>
+                  {/if}
+                  {#if parsedReview?.acceptance_criteria_results?.length}
+                    <div class="space-y-1 mt-2">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Acceptance Criteria</p>
+                      {#each parsedReview.acceptance_criteria_results as cr}
+                        <div class="flex items-start gap-2 text-xs">
+                          <span class="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0 {cr.met ? 'text-green-600 dark:text-green-400' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                            {cr.met ? 'check_circle' : 'cancel'}
+                          </span>
+                          <div>
+                            <span class="text-foreground">{cr.criterion}</span>
+                            {#if cr.detail}
+                              <span class="text-muted-foreground"> — {cr.detail}</span>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if parsedReview?.issues?.length}
+                    <div class="mt-2">
+                      <p class="text-[10px] font-semibold text-destructive uppercase tracking-wider mb-1">Issues</p>
+                      {#each parsedReview.issues as issue}
+                        <p class="text-xs text-foreground">- {typeof issue === 'string' ? issue : JSON.stringify(issue)}</p>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if !parsedReview}
+                    <details class="mt-1">
+                      <summary class="text-[10px] text-muted-foreground cursor-pointer">Raw output</summary>
+                      <pre class="text-[10px] font-mono text-foreground whitespace-pre-wrap mt-1 max-h-32 overflow-auto">{reviewVerdict}</pre>
+                    </details>
+                  {/if}
                 </div>
               {/if}
 
               <!-- QA report -->
               {#if qaReport}
-                <div class="mt-4 p-3 rounded-lg bg-muted border border-border">
-                  <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">QA Report</h4>
-                  <pre class="text-[11px] font-mono text-foreground whitespace-pre-wrap">{qaReport}</pre>
+                <div class="mt-4 p-3 rounded-lg border border-border {parsedQA?.recommendation === 'pass' ? 'bg-green-500/5 border-green-500/20' : parsedQA?.recommendation === 'fail' ? 'bg-destructive/5 border-destructive/20' : 'bg-muted'}">
+                  <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">QA Report</h4>
+                    {#if parsedQA?.recommendation}
+                      <Badge variant={parsedQA.recommendation === 'pass' ? 'default' : 'destructive'}>
+                        <span class="material-symbols-outlined text-[12px] mr-1" style="font-variation-settings: 'FILL' 1;">
+                          {parsedQA.recommendation === 'pass' ? 'verified' : 'gpp_bad'}
+                        </span>
+                        {parsedQA.recommendation === 'pass' ? 'PASS' : 'FAIL'}
+                      </Badge>
+                    {/if}
+                  </div>
+                  {#if parsedQA?.verification_summary}
+                    <p class="text-xs text-foreground mb-3">{parsedQA.verification_summary}</p>
+                  {/if}
+
+                  <!-- Files verified -->
+                  {#if parsedQA?.files_verified?.length}
+                    <div class="mb-3">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Files Verified</p>
+                      <div class="space-y-1">
+                        {#each parsedQA.files_verified as fv}
+                          <div class="flex items-start gap-2 text-xs">
+                            <span class="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0 {fv.exists && fv.valid ? 'text-green-600 dark:text-green-400' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                              {fv.exists && fv.valid ? 'check_circle' : 'cancel'}
+                            </span>
+                            <div>
+                              <span class="font-mono text-foreground">{fv.file}</span>
+                              {#if fv.detail}
+                                <span class="text-muted-foreground"> — {fv.detail}</span>
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Test results -->
+                  {#if parsedQA?.test_results?.length}
+                    <div class="mb-3">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Test Results</p>
+                      <div class="space-y-1">
+                        {#each parsedQA.test_results as tr}
+                          <div class="flex items-start gap-2 text-xs">
+                            <span class="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0 {tr.passed ? 'text-green-600 dark:text-green-400' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                              {tr.passed ? 'check_circle' : 'cancel'}
+                            </span>
+                            <div>
+                              <span class="text-foreground">{tr.test}</span>
+                              {#if tr.detail}
+                                <p class="text-muted-foreground text-[11px]">{tr.detail}</p>
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Checklist results -->
+                  {#if parsedQA?.checklist_results?.length}
+                    <div class="mb-3">
+                      <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Acceptance Checklist</p>
+                      <div class="space-y-1">
+                        {#each parsedQA.checklist_results as cr}
+                          <div class="flex items-start gap-2 text-xs">
+                            <span class="material-symbols-outlined text-[14px] mt-0.5 flex-shrink-0 {cr.passed ? 'text-green-600 dark:text-green-400' : 'text-destructive'}" style="font-variation-settings: 'FILL' 1;">
+                              {cr.passed ? 'check_circle' : 'cancel'}
+                            </span>
+                            <div>
+                              <span class="text-foreground">{cr.item}</span>
+                              {#if cr.detail}
+                                <p class="text-muted-foreground text-[11px]">{cr.detail}</p>
+                              {/if}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+
+                  <!-- Failing tests -->
+                  {#if parsedQA?.failing_tests?.length}
+                    <div class="mb-2">
+                      <p class="text-[10px] font-semibold text-destructive uppercase tracking-wider mb-1">Failing Tests</p>
+                      {#each parsedQA.failing_tests as ft}
+                        <p class="text-xs text-foreground">- {typeof ft === 'string' ? ft : JSON.stringify(ft)}</p>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if !parsedQA}
+                    <details class="mt-1">
+                      <summary class="text-[10px] text-muted-foreground cursor-pointer">Raw output</summary>
+                      <pre class="text-[10px] font-mono text-foreground whitespace-pre-wrap mt-1 max-h-32 overflow-auto">{qaReport}</pre>
+                    </details>
+                  {/if}
                 </div>
               {/if}
             {:else if files.length > 0}

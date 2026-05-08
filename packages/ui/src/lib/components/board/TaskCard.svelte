@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Task, TaskStatus } from '../../types/index.js';
+  import { Progress } from '$lib/components/ui/progress/index.js';
+  import { onMount } from 'svelte';
 
   let {
     task,
@@ -17,12 +19,16 @@
     onselect?: (task: Task) => void;
   } = $props();
 
-  const isInProgress = $derived(status === 'in_progress' || status === 'planning' || status === 'coding');
+  const isInProgress = $derived(status === 'in_progress' || status === 'coding');
+  const isPlanningActive = $derived(status === 'planning');
+  const isPlanningQueued = $derived(task.status === 'planning_queued');
+  const isPlanned = $derived(task.status === 'planned');
   const isNeedsHuman = $derived(status === 'needs_human');
   const isReady = $derived(status === 'ready');
   const isFailed = $derived(status === 'failed');
   const isDone = $derived(status === 'done');
   const isPlanning = $derived(status === 'planning');
+  const isBacklogCard = $derived(task.status === 'backlog' || task.status === 'planning_queued' || task.status === 'planned');
 
   // Get label badges from task labels
   const labelBadges = $derived(
@@ -48,6 +54,25 @@
     if (status === 'qa') return 'QA';
     return null;
   });
+
+  // Planning progress animation
+  let planningProgress = $state(0);
+  $effect(() => {
+    if (isPlanningQueued) {
+      planningProgress = 15;
+      const t = setTimeout(() => { planningProgress = 70; }, 400);
+      return () => clearTimeout(t);
+    } else if (isPlanned) {
+      planningProgress = 100;
+    } else {
+      planningProgress = 0;
+    }
+  });
+
+  // All labels for backlog display
+  const allLabels = $derived(
+    task.labels?.map(l => ({ category: l.category, value: l.value })) ?? []
+  );
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -105,14 +130,31 @@
     </div>
   {/if}
 
+  <!-- Execution order badge (in planning column) -->
+  {#if isPlanningActive && task.executionOrder}
+    <div class="absolute -top-2 -left-2 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-[10px] font-bold shadow-lg z-10">
+      {task.executionOrder}
+    </div>
+  {/if}
+
   <!-- Card Header -->
   <div class="flex justify-between items-start mb-2 {selectable ? 'pl-7' : isReady || isNeedsHuman || isFailed || isDone ? 'pl-1' : ''}">
     <span class="text-xs text-muted-foreground font-mono tracking-tight">{task.id.slice(0, 8).toUpperCase()}</span>
     <div class="flex items-center gap-1">
-      {#if isPlanning}
+      {#if isPlanningQueued}
+        <span class="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+          <span class="material-symbols-outlined text-[12px]">psychology</span>
+          Planning...
+        </span>
+      {:else if isPlanned}
+        <span class="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+          <span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+          Plan Ready
+        </span>
+      {:else if isPlanning}
         <span class="flex items-center gap-1 text-[10px] text-primary">
-          <span class="material-symbols-outlined text-[12px] animate-spin">psychology</span>
-          Planning
+          <span class="material-symbols-outlined text-[12px]">psychology</span>
+          #{task.executionOrder || ''}
         </span>
       {:else if isInProgress && task.agentType}
         <span class="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -147,37 +189,38 @@
     </p>
   {/if}
 
+  <!-- Planning Progress Bar -->
+  {#if isPlanningQueued || isPlanned}
+    <div class="mb-3 {selectable ? 'pl-7' : ''}">
+      <Progress value={planningProgress} max={100} class="h-1.5" />
+    </div>
+  {/if}
+
   <!-- Footer: Labels + Meta -->
   <div class="flex items-center justify-between mt-auto pt-2 border-t border-border/50 {isReady || isNeedsHuman || isFailed || isDone ? 'pl-1' : ''}">
     <div class="flex gap-1.5 flex-wrap">
-      <!-- Risk badge -->
-      {#if riskLabel}
-        <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium
-          {riskLabel === 'high' ? 'bg-destructive/10 text-destructive border border-destructive/20' :
-           riskLabel === 'medium' ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20' :
-           'bg-chart-1/10 text-chart-1 border border-chart-1/20'}
-        ">
-          {riskLabel}
-        </span>
-      {/if}
-
-      <!-- Type badge -->
-      {#if typeLabel}
-        <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-secondary text-secondary-foreground">
-          {typeLabel}
-        </span>
+      {#if allLabels.length > 0}
+        {#each allLabels as label}
+          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium
+            {label.category === 'risk' && label.value === 'high' ? 'bg-destructive/10 text-destructive border border-destructive/20' :
+             label.category === 'risk' && label.value === 'medium' ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20' :
+             label.category === 'risk' ? 'bg-chart-1/10 text-chart-1 border border-chart-1/20' :
+             label.category === 'priority' && label.value === 'high' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
+             label.category === 'priority' && label.value === 'critical' ? 'bg-destructive/10 text-destructive border border-destructive/20' :
+             label.category === 'priority' ? 'bg-secondary text-secondary-foreground' :
+             label.category === 'type' ? 'bg-primary/10 text-primary border border-primary/20' :
+             label.category === 'scope' && label.value === 'large' ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20' :
+             label.category === 'scope' ? 'bg-secondary text-secondary-foreground' :
+             'bg-secondary text-secondary-foreground'}
+          ">
+            {label.value}
+          </span>
+        {/each}
       {:else if task.agentType}
         <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-secondary text-secondary-foreground">
           {task.agentType}
         </span>
       {/if}
-
-      <!-- Extra labels (max 1 more) -->
-      {#each labelBadges.filter(l => l.category !== 'risk' && l.category !== 'type').slice(0, 1) as label}
-        <span class="px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-secondary text-secondary-foreground">
-          {label.value}
-        </span>
-      {/each}
     </div>
 
     <div class="flex items-center gap-2">

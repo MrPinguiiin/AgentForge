@@ -183,6 +183,7 @@
     bind:this={terminalEl}
     class="flex-1 overflow-y-auto p-4 font-mono text-sm bg-background"
     onclick={() => inputEl?.focus()}
+    onkeydown={() => inputEl?.focus()}
     role="textbox"
     tabindex="-1"
   >

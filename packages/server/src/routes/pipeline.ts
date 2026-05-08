@@ -244,6 +244,7 @@ export function createPipelineRoutes(worker: TaskHiveWorker) {
       const result = await worker.queueBatchPlanning(body.taskIds, body.settings ?? { reviewMode: "auto", approvalMode: "auto" });
       return c.json({
         success: true,
+        batchId: result.batchId,
         queued: result.queued,
         skipped: result.skipped,
         message: `${result.queued.length} tasks queued, ${result.skipped.length} skipped`,
@@ -307,6 +308,49 @@ export function createPipelineRoutes(worker: TaskHiveWorker) {
       const body = await c.req.json<{ reviewMode?: string; approvalMode?: string }>();
       await worker.savePipelineDefaults(body);
       return c.json({ success: true, message: "Pipeline defaults saved" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
+  // ── Batch Execute ──────────────────────
+  // POST /api/pipeline/batch/:batchId/execute
+  app.post("/batch/:batchId/execute", async (c) => {
+    const batchId = c.req.param("batchId");
+    try {
+      await worker.executeBatch(batchId);
+      return c.json({ success: true, message: "Batch execution started" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 400);
+    }
+  });
+
+  // ── Batch Status ──────────────────────
+  // GET /api/pipeline/batch/:batchId/status
+  app.get("/batch/:batchId/status", async (c) => {
+    const batchId = c.req.param("batchId");
+    try {
+      const status = await worker.getBatchStatus(batchId);
+      return c.json({ status });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // ── Batch Reorder ──────────────────────
+  // POST /api/pipeline/batch/:batchId/reorder
+  app.post("/batch/:batchId/reorder", async (c) => {
+    const batchId = c.req.param("batchId");
+    try {
+      const body = await c.req.json<{ taskIds: string[] }>();
+      if (!body.taskIds || !Array.isArray(body.taskIds)) {
+        return c.json({ success: false, error: "taskIds must be an array" }, 400);
+      }
+      await worker.reorderBatch(batchId, body.taskIds);
+      return c.json({ success: true, message: "Batch reordered" });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ success: false, error: message }, 400);

@@ -213,6 +213,8 @@ export function initializeDatabase(dbPath: string): BunSQLiteDatabase<typeof sch
     "ALTER TABLE tasks ADD COLUMN review_mode TEXT DEFAULT 'auto'",
     "ALTER TABLE tasks ADD COLUMN approval_mode TEXT DEFAULT 'auto'",
     "ALTER TABLE tasks ADD COLUMN needs_human_reason TEXT",
+    "ALTER TABLE tasks ADD COLUMN batch_id TEXT",
+    "ALTER TABLE tasks ADD COLUMN execution_order INTEGER NOT NULL DEFAULT 0",
   ];
 
   for (const migration of columnMigrations) {

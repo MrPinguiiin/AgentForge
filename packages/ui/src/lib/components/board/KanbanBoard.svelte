@@ -9,9 +9,19 @@
     toggleBacklogSelection,
     selectAllBacklog,
     clearBacklogSelection,
+    loadTasks,
+    currentProject,
   } from '../../stores/tasks.js';
+  import { get } from 'svelte/store';
   import KanbanColumn from './KanbanColumn.svelte';
   import BatchRunSettingsModal from './BatchRunSettingsModal.svelte';
+  import * as api from '../../api/client.js';
+
+  let {
+    onCreateTask,
+  }: {
+    onCreateTask?: () => void;
+  } = $props();
 
   let showBatchModal = $state(false);
 
@@ -28,10 +38,15 @@
     }
   }
 
-  function getTasksForStatus(tasks: Task[], status: TaskStatus): Task[] {
+  function getTasksForColumn(tasks: Task[], col: typeof COLUMN_CONFIG[number]): Task[] {
+    const statuses = new Set<string>([col.id, ...(col.extraStatuses ?? [])]);
     return tasks
-      .filter(t => t.status === status && !t.parentId)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
+      .filter(t => statuses.has(t.status) && !t.parentId)
+      .sort((a, b) => {
+        // In planning column, sort by executionOrder
+        if (col.id === 'planning') return (a.executionOrder ?? 0) - (b.executionOrder ?? 0);
+        return a.sortOrder - b.sortOrder;
+      });
   }
 
   function handleTaskSelect(task: Task) {
@@ -40,7 +55,8 @@
 
   function handleSelectAll() {
     // Toggle: if all selected, clear; otherwise select all
-    const backlogTasks = getTasksForStatus($allTasks, 'backlog');
+    const backlogCol = COLUMN_CONFIG.find(c => c.id === 'backlog')!;
+    const backlogTasks = getTasksForColumn($allTasks, backlogCol).filter(t => t.status === 'backlog');
     if ($selectedBacklogTasks.size === backlogTasks.length && backlogTasks.length > 0) {
       clearBacklogSelection();
     } else {
@@ -51,6 +67,25 @@
   function handleStartSelected() {
     showBatchModal = true;
   }
+
+  async function handleExecuteBatch() {
+    // Find the batchId from planning tasks
+    const planningCol = COLUMN_CONFIG.find(c => c.id === 'planning')!;
+    const planningTasks = getTasksForColumn($allTasks, planningCol);
+    if (planningTasks.length === 0) return;
+
+    const batchId = planningTasks[0]?.batchId;
+    if (!batchId) return;
+
+    try {
+      await api.executeBatch(batchId);
+      // Refresh tasks
+      const project = get(currentProject);
+      if (project) await loadTasks(project.id);
+    } catch (err) {
+      console.error('Failed to execute batch:', err);
+    }
+  }
 </script>
 
 <div class="flex gap-6 h-full overflow-x-auto kanban-scroll pb-4 items-start">
@@ -59,13 +94,15 @@
       status={col.id}
       title={col.title}
       icon={col.icon}
-      tasks={getTasksForStatus($allTasks, col.id)}
+      tasks={getTasksForColumn($allTasks, col)}
       onTaskClick={handleTaskClick}
       onDrop={handleDrop}
       selectedTaskIds={$selectedBacklogTasks}
       onTaskSelect={handleTaskSelect}
       onSelectAll={handleSelectAll}
       onStartSelected={handleStartSelected}
+      onExecuteBatch={handleExecuteBatch}
+      onCreateTask={onCreateTask}
     />
   {/each}
 </div>
