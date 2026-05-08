@@ -93,8 +93,13 @@ export async function startServer(
 
   // Forward worker events to orchestrator for WebSocket broadcast
   // Use pipeline events which match the OrchestratorEvents interface
-  worker.on("task:moved", (taskId, from, to) => {
+  worker.on("task:moved", async (taskId, from, to) => {
     orchestrator.emit("pipeline:stage", taskId, to);
+    // Also emit task:updated so the board refreshes in real-time
+    try {
+      const task = await orchestrator.getTaskManager().getTask(taskId);
+      if (task) orchestrator.emit("task:updated", task);
+    } catch { /* ignore */ }
   });
   worker.on("planning:started", (taskId, _runId) => {
     orchestrator.emit("agent:start", taskId, "planner");

@@ -356,17 +356,14 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
    * Retry planning for a task
    */
   async retryPlanning(taskId: string): Promise<schema.Job> {
-    // Reset task to backlog
+    // Reset task to backlog and clear batch association so it runs as a single task
     await this.updateTaskStatus(taskId, "backlog");
-    await this.db.update(schema.tasks).set({
-      retryCount: schema.tasks.retryCount,
-    }).where(eq(schema.tasks.id, taskId));
-
-    // Increment retry count
     const [task] = await this.db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
     if (task) {
       await this.db.update(schema.tasks).set({
         retryCount: task.retryCount + 1,
+        batchId: null,
+        executionOrder: 0,
       }).where(eq(schema.tasks.id, taskId));
     }
 
@@ -1002,7 +999,7 @@ export class TaskHiveWorker extends EventEmitter<WorkerEvents> {
           .where(eq(schema.tasks.batchId, taskBatchId));
 
         const allDone = batchTasks.every(
-          (t) => t.status === "planned" || t.status === "failed" || t.status === "cancelled",
+          (t) => t.status === "planned" || t.status === "failed" || t.status === "cancelled" || t.status === "done",
         );
         const plannedCount = batchTasks.filter((t) => t.status === "planned").length;
 

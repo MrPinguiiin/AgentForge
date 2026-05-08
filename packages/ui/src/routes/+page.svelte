@@ -93,10 +93,13 @@
     const unsubUpdated = wsStore.on('task:updated', () => {
       if ($currentProject) loadTasks($currentProject.id);
     });
-    const unsubStatus = wsStore.on('task:status_changed', () => {
+    const unsubStatus = wsStore.on('task:statusChanged', () => {
       if ($currentProject) loadTasks($currentProject.id);
     });
     const unsubDeleted = wsStore.on('task:deleted', () => {
+      if ($currentProject) loadTasks($currentProject.id);
+    });
+    const unsubPipeline = wsStore.on('pipeline:stage', () => {
       if ($currentProject) loadTasks($currentProject.id);
     });
 
@@ -105,6 +108,7 @@
       unsubUpdated();
       unsubStatus();
       unsubDeleted();
+      unsubPipeline();
       wsStore.disconnect();
     };
   });

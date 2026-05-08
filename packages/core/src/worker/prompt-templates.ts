@@ -24,6 +24,32 @@ WORKSPACE RULES (CRITICAL — read carefully):
 }
 
 /**
+ * Detect the language of the task title/description and return an instruction
+ * telling the AI to respond in that same language.
+ */
+function languageBlock(title: string, description?: string | null): string {
+  const text = `${title} ${description ?? ""}`.trim();
+  // Simple heuristic: check for common non-ASCII scripts
+  const hasLatin = /[a-zA-Z]{3,}/.test(text);
+  const hasCJK = /[\u3000-\u9FFF\uF900-\uFAFF]/.test(text);
+  const hasKorean = /[\uAC00-\uD7AF]/.test(text);
+  const hasArabic = /[\u0600-\u06FF]/.test(text);
+  const hasCyrillic = /[\u0400-\u04FF]/.test(text);
+  const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF]/.test(text);
+  // Indonesian/Malay detection: Latin script with common Indonesian words
+  const indonesianWords = /\b(dan|atau|untuk|dengan|dari|yang|ini|itu|pada|ke|di|buat|tambah|fungsi|halaman|fitur|tampilan|ubah|hapus|perbaiki)\b/i;
+  const isIndonesian = hasLatin && indonesianWords.test(text);
+
+  if (isIndonesian) return "\nLANGUAGE: The task is written in Indonesian (Bahasa Indonesia). You MUST write ALL your responses, summaries, and explanations in Indonesian. Code comments may remain in English.";
+  if (hasCJK && !hasJapanese && !hasKorean) return "\nLANGUAGE: The task is written in Chinese. You MUST write ALL your responses, summaries, and explanations in Chinese.";
+  if (hasJapanese) return "\nLANGUAGE: The task is written in Japanese. You MUST write ALL your responses, summaries, and explanations in Japanese.";
+  if (hasKorean) return "\nLANGUAGE: The task is written in Korean. You MUST write ALL your responses, summaries, and explanations in Korean.";
+  if (hasArabic) return "\nLANGUAGE: The task is written in Arabic. You MUST write ALL your responses, summaries, and explanations in Arabic.";
+  if (hasCyrillic) return "\nLANGUAGE: The task is written in Russian. You MUST write ALL your responses, summaries, and explanations in Russian.";
+  return "\nLANGUAGE: Write all responses, summaries, and explanations in English.";
+}
+
+/**
  * Build the planning prompt per docs section 11.
  * Now includes project context and sibling task awareness.
  */
@@ -41,6 +67,7 @@ You are running inside OpenCode behind a Kanban orchestration system.
 Your job is to create a safe implementation plan only.
 Do not edit files. Do not run destructive commands. Do not commit. Do not push.
 ${workspaceBlock(project.rootPath)}
+${languageBlock(task.title, task.description)}
 
 ${projectContext ? `${projectContext}\n` : ""}${siblingTasksContext ? `${siblingTasksContext}\n` : ""}
 Task: ${task.title}
@@ -100,6 +127,7 @@ export function buildExecutionPrompt(task: {
 You are running inside OpenCode behind a Kanban orchestration system.
 Your job is to implement the approved plan by creating and editing files.
 ${workspaceBlock(projectPath)}
+${languageBlock(task.title, task.description)}
 
 ${projectContext ? `${projectContext}\n` : ""}${siblingTasksContext ? `${siblingTasksContext}\n` : ""}
 Task: ${task.title}
@@ -147,6 +175,7 @@ export function buildReviewPrompt(task: {
 You are reviewing code changes made by an AI coding agent.
 Your job is to STRICTLY verify that the changes match the task requirements and acceptance criteria.
 ${projectPath ? workspaceBlock(projectPath) : ""}
+${languageBlock(task.title, task.description)}
 
 ${projectContext ? `${projectContext}\n` : ""}${siblingTasksContext ? `${siblingTasksContext}\n` : ""}
 Task: ${task.title}
@@ -221,6 +250,7 @@ export function buildQAPrompt(task: {
 You are verifying that an AI coding agent completed its task correctly.
 Your job is to be STRICT — only pass tasks that fully satisfy ALL acceptance criteria.
 ${projectPath ? workspaceBlock(projectPath) : ""}
+${languageBlock(task.title, task.description)}
 
 ${projectContext ? `${projectContext}\n` : ""}${siblingTasksContext ? `${siblingTasksContext}\n` : ""}
 Task: ${task.title}

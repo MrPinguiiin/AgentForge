@@ -28,6 +28,9 @@
   const isFailed = $derived(status === 'failed');
   const isDone = $derived(status === 'done');
   const isPlanning = $derived(status === 'planning');
+  const isInReview = $derived(status === 'in_review');
+  const isQA = $derived(status === 'qa');
+  const isActive = $derived(isInProgress || isPlanning || isInReview || isQA);
   const isBacklogCard = $derived(task.status === 'backlog' || task.status === 'planning_queued' || task.status === 'planned');
 
   // Get label badges from task labels
@@ -55,17 +58,33 @@
     return null;
   });
 
-  // Planning progress animation
-  let planningProgress = $state(0);
+  // Pipeline stage progress (0-100)
+  const pipelineProgress = $derived(() => {
+    const s = task.status;
+    if (s === 'backlog') return 0;
+    if (s === 'planning_queued') return 10;
+    if (s === 'planned') return 20;
+    if (s === 'planning') return 25;
+    if (s === 'in_progress' || s === 'coding') return 45;
+    if (s === 'in_review') return 65;
+    if (s === 'qa') return 80;
+    if (s === 'done') return 100;
+    if (s === 'failed') return 100;
+    if (s === 'needs_human') return 50;
+    return 0;
+  });
+
+  // Animated progress value
+  let animatedProgress = $state(0);
   $effect(() => {
-    if (isPlanningQueued) {
-      planningProgress = 15;
-      const t = setTimeout(() => { planningProgress = 70; }, 400);
+    const target = pipelineProgress();
+    if (target > 0) {
+      // Start low then animate to target
+      animatedProgress = Math.max(animatedProgress, target - 15);
+      const t = setTimeout(() => { animatedProgress = target; }, 300);
       return () => clearTimeout(t);
-    } else if (isPlanned) {
-      planningProgress = 100;
     } else {
-      planningProgress = 0;
+      animatedProgress = 0;
     }
   });
 
@@ -78,8 +97,11 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="bg-card rounded-xl p-4 border transition-all duration-200 cursor-grab active:cursor-grabbing group relative overflow-hidden shadow-sm hover:shadow-md
+  class="bg-card rounded-xl p-4 border transition-all duration-300 cursor-grab active:cursor-grabbing group relative overflow-hidden shadow-sm hover:shadow-md
     {isInProgress ? 'border-2 border-primary shadow-md' :
+     isPlanning ? 'border-2 border-primary/60 shadow-md' :
+     isInReview ? 'border-2 border-amber-500/40 shadow-md' :
+     isQA ? 'border-2 border-violet-500/40 shadow-md' :
      isNeedsHuman ? 'border-destructive/30 hover:border-destructive' :
      isFailed ? 'border-destructive/20 hover:border-destructive/40' :
      isReady ? 'border-border hover:border-primary/50' :
@@ -113,7 +135,13 @@
   {/if}
 
   <!-- Left accent -->
-  {#if isReady}
+  {#if isInProgress || isPlanning}
+    <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-l-xl animate-pulse"></div>
+  {:else if isInReview}
+    <div class="absolute left-0 top-0 bottom-0 w-1 bg-amber-500 rounded-l-xl animate-pulse"></div>
+  {:else if isQA}
+    <div class="absolute left-0 top-0 bottom-0 w-1 bg-violet-500 rounded-l-xl animate-pulse"></div>
+  {:else if isReady}
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary/30 rounded-l-xl"></div>
   {:else if isNeedsHuman}
     <div class="absolute left-0 top-0 bottom-0 w-1 bg-destructive/50 rounded-l-xl"></div>
@@ -124,9 +152,9 @@
   {/if}
 
   <!-- Agent working indicator -->
-  {#if isInProgress && task.agentType}
-    <div class="absolute -top-2 -right-2 bg-card border border-primary rounded-full p-1 shadow-lg flex items-center justify-center animate-pulse">
-      <span class="material-symbols-outlined text-[14px] text-primary" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+  {#if isActive}
+    <div class="absolute -top-2 -right-2 bg-card border {isInReview ? 'border-amber-500' : isQA ? 'border-violet-500' : 'border-primary'} rounded-full p-1 shadow-lg flex items-center justify-center animate-pulse">
+      <span class="material-symbols-outlined text-[14px] {isInReview ? 'text-amber-500' : isQA ? 'text-violet-500' : 'text-primary'}" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
     </div>
   {/if}
 
@@ -153,13 +181,23 @@
         </span>
       {:else if isPlanning}
         <span class="flex items-center gap-1 text-[10px] text-primary">
-          <span class="material-symbols-outlined text-[12px]">psychology</span>
-          #{task.executionOrder || ''}
+          <span class="material-symbols-outlined text-[12px] animate-spin">psychology</span>
+          Planning{task.executionOrder ? ` #${task.executionOrder}` : ''}
         </span>
-      {:else if isInProgress && task.agentType}
-        <span class="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <span class="material-symbols-outlined text-[12px] animate-spin">sync</span>
-          {statusText()}
+      {:else if isInProgress}
+        <span class="flex items-center gap-1 text-[10px] text-primary">
+          <span class="material-symbols-outlined text-[12px] animate-spin">code</span>
+          Coding...
+        </span>
+      {:else if isInReview}
+        <span class="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+          <span class="material-symbols-outlined text-[12px] animate-spin">rate_review</span>
+          Reviewing...
+        </span>
+      {:else if isQA}
+        <span class="flex items-center gap-1 text-[10px] text-violet-600 dark:text-violet-400">
+          <span class="material-symbols-outlined text-[12px] animate-spin">bug_report</span>
+          QA...
         </span>
       {:else if isNeedsHuman}
         <span class="material-symbols-outlined text-[14px] text-destructive">warning</span>
@@ -189,10 +227,22 @@
     </p>
   {/if}
 
-  <!-- Planning Progress Bar -->
-  {#if isPlanningQueued || isPlanned}
+  <!-- Pipeline Progress Bar (shown for all active stages) -->
+  {#if animatedProgress > 0 && animatedProgress < 100}
     <div class="mb-3 {selectable ? 'pl-7' : ''}">
-      <Progress value={planningProgress} max={100} class="h-1.5" />
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[9px] text-muted-foreground uppercase tracking-wider">
+          {task.status === 'planning_queued' ? 'Planning' :
+           task.status === 'planned' ? 'Plan Ready' :
+           task.status === 'planning' ? 'Planning' :
+           task.status === 'in_progress' || task.status === 'coding' ? 'Coding' :
+           task.status === 'in_review' ? 'Review' :
+           task.status === 'qa' ? 'QA' :
+           task.status === 'needs_human' ? 'Waiting' : ''}
+        </span>
+        <span class="text-[9px] text-muted-foreground">{animatedProgress}%</span>
+      </div>
+      <Progress value={animatedProgress} max={100} class="h-1.5" />
     </div>
   {/if}
 

@@ -704,13 +704,72 @@
                   <p class="text-sm font-medium text-foreground">Task completed</p>
                 </div>
               {:else if task.status === 'failed'}
-                <div class="flex items-center gap-3 px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20">
-                  <span class="material-symbols-outlined text-destructive text-[20px]">error</span>
-                  <div class="flex-1">
-                    <p class="text-sm font-medium text-foreground">Task failed</p>
-                    <p class="text-xs text-muted-foreground">Retries: {task.retryCount ?? 0}</p>
+                <div class="px-4 py-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-3">
+                  <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-destructive text-[20px]">error</span>
+                    <div class="flex-1">
+                      <p class="text-sm font-medium text-foreground">Task failed</p>
+                      <p class="text-xs text-muted-foreground">Retries: {task.retryCount ?? 0}</p>
+                    </div>
+                    <Button variant="outline" size="sm" onclick={() => handleAction('retry-planning')}>Retry</Button>
                   </div>
-                  <Button variant="outline" size="sm" onclick={() => handleAction('retry-planning')}>Retry</Button>
+
+                  <!-- QA failure details -->
+                  {#if parsedQA && parsedQA.recommendation === 'fail'}
+                    <div class="border-t border-destructive/10 pt-3 space-y-2">
+                      <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[14px] text-destructive" style="font-variation-settings: 'FILL' 1;">bug_report</span>
+                        <span class="text-[10px] font-semibold text-destructive uppercase tracking-wider">QA Failed</span>
+                      </div>
+                      {#if parsedQA.verification_summary}
+                        <p class="text-xs text-foreground leading-relaxed">{parsedQA.verification_summary}</p>
+                      {/if}
+                      {#if parsedQA.failing_tests?.length}
+                        <div class="space-y-1">
+                          {#each parsedQA.failing_tests as ft}
+                            <div class="flex items-start gap-2 text-xs">
+                              <span class="material-symbols-outlined text-[13px] text-destructive mt-0.5 shrink-0" style="font-variation-settings: 'FILL' 1;">cancel</span>
+                              <span class="text-foreground">{typeof ft === 'string' ? ft : JSON.stringify(ft)}</span>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- Review failure details -->
+                  {#if parsedReview && parsedReview.verdict === 'request_changes'}
+                    <div class="border-t border-destructive/10 pt-3 space-y-2">
+                      <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-outlined text-[14px] text-destructive" style="font-variation-settings: 'FILL' 1;">rate_review</span>
+                        <span class="text-[10px] font-semibold text-destructive uppercase tracking-wider">Review Rejected</span>
+                      </div>
+                      {#if parsedReview.summary}
+                        <p class="text-xs text-foreground leading-relaxed">{parsedReview.summary}</p>
+                      {/if}
+                      {#if parsedReview.issues?.length}
+                        <div class="space-y-1">
+                          {#each parsedReview.issues as issue}
+                            <div class="flex items-start gap-2 text-xs">
+                              <span class="material-symbols-outlined text-[13px] text-destructive mt-0.5 shrink-0" style="font-variation-settings: 'FILL' 1;">cancel</span>
+                              <span class="text-foreground">{typeof issue === 'string' ? issue : JSON.stringify(issue)}</span>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- Last run error (if no structured QA/review data) -->
+                  {#if !parsedQA && !parsedReview && taskRuns.length > 0}
+                    {@const lastRun = taskRuns[taskRuns.length - 1]}
+                    {#if lastRun.error}
+                      <div class="border-t border-destructive/10 pt-3">
+                        <p class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Error</p>
+                        <p class="text-xs text-foreground font-mono">{lastRun.error}</p>
+                      </div>
+                    {/if}
+                  {/if}
                 </div>
               {/if}
 
